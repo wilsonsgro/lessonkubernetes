@@ -1,0 +1,157 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 05. STATO: STATEFULSET, VOLUMI PERSISTENTI E PODDISRUPTIONBUDGET
+# Versione: Kubernetes 1.34–1.35 (il lab minikube gira la 1.34.0) · storage class di default (minikube "standard")
+# Livello: 2 — Stato e disponibilità
+# ═══════════════════════════════════════════════════════════════════════════
+# Un Deployment tratta i Pod come bestiame: nomi casuali, intercambiabili,
+# tutti sullo stesso volume (se c'è). Un database a 3 nodi ha bisogno di:
+#   • IDENTITÀ STABILE   db-0, db-1, db-2 — lo stesso nome dopo un restart
+#   • DNS STABILE        db-0.db.lab.svc.cluster.local (Service headless)
+#   • DISCO PER REPLICA  ogni Pod il suo PVC, che lo segue se cambia nodo
+#   • ORDINE             crea 0→1→2, cancella 2→1→0 (podManagementPolicy
+#                        OrderedReady); Parallel se l'ordine non serve
+#
+# CATENA DELLO STORAGE
+#   PVC (richiesta: 1Gi RWO) ──▶ StorageClass (provisioner: driver CSI)
+#                           ──▶ PV (il disco vero: EBS, PD, local-path…)
+#   volumeBindingMode: WaitForFirstConsumer → il PV si crea nella zona
+#   del nodo dove lo scheduler mette il Pod (senza: disco in zona A,
+#   Pod costretto in zona B = Pending per sempre).
+#   reclaimPolicy: Delete (default dinamico) | Retain (dati di produzione)
+#   accessModes: RWO (un nodo) · RWOP (un Pod) · RWX (NFS/CephFS/EFS)
+#
+# LAB
+#   kubectl apply -f 05-statefulset-storage-pdb.yaml
+#   kubectl -n lab rollout status sts/db
+#   kubectl -n lab get pod,pvc -l app=db
+#   kubectl -n lab exec db-0 -- cat /data/identita        # db-0 avviato alle…
+#   kubectl -n lab delete pod db-0 && kubectl -n lab wait --for=condition=Ready pod/db-0
+#   kubectl -n lab exec db-0 -- cat /data/identita        # due righe: stesso disco
+#   kubectl -n lab run dns --rm -i --quiet --restart=Never --image=busybox:1.37 -- \
+#       nslookup db-1.db.lab.svc.cluster.local      # -it senza terminale perde l'output
+#     ↑ nome completo: il nslookup di busybox con il nome corto dà NXDOMAIN (provato)
+#   kubectl -n lab scale sts/db --replicas=1              # i PVC di db-1/db-2 RESTANO
+#   kubectl drain <nodo> --ignore-daemonsets              # il PDB frena lo sfratto
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: lab
+spec:
+  clusterIP: None              # headless: niente IP virtuale, record DNS per Pod
+  publishNotReadyAddresses: true   # i peer si trovano anche prima di essere pronti
+  selector: { app: db }
+  ports:
+    - name: tcp
+      port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+  namespace: lab
+spec:
+  serviceName: db              # il Service headless che governa i nomi DNS
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0             # >0 = aggiorna solo gli ordinali >= partition:
+                               # canary manuale su db-2 prima di toccare il primario
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain        # cancello lo StatefulSet: i dati restano
+    whenScaled: Retain         # scalo giù: i dati restano (per lo scale up)
+  selector:
+    matchLabels: { app: db }
+  template:
+    metadata:
+      labels: { app: db }
+    spec:
+      terminationGracePeriodSeconds: 10
+      affinity:
+        podAntiAffinity:       # mai due repliche sullo stesso nodo (se possibile)
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: { app: db }
+      containers:
+        - name: db
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              echo "$(hostname) avviato alle $(date +%T)" >> /data/identita
+              exec sleep 1000000
+          ports:
+            - { name: tcp, containerPort: 5432 }
+          volumeMounts:
+            - name: dati
+              mountPath: /data
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
+  volumeClaimTemplates:        # un PVC per Pod: dati-db-0, dati-db-1, dati-db-2
+    - metadata:
+        name: dati
+      spec:
+        accessModes: [ReadWriteOnce]
+        # storageClassName omesso = la classe di default del cluster
+        resources:
+          requests:
+            storage: 1Gi
+---
+# ── PODDISRUPTIONBUDGET ─────────────────────────────────────────────────────
+# Protegge dalle interruzioni VOLONTARIE: drain dei nodi (upgrade del
+# cluster, autoscaler che spegne un nodo), eviction API. NON protegge da
+# un nodo che muore o da un `kubectl delete pod`.
+# Con 3 repliche e quorum 2: al massimo 1 Pod giù per volta.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: db
+  namespace: lab
+spec:
+  maxUnavailable: 1            # oppure minAvailable: 2
+  selector:
+    matchLabels: { app: db }
+  unhealthyPodEvictionPolicy: AlwaysAllow   # un Pod già rotto non blocca il drain
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Database su Kubernetes: sì o no?
+# R: Si può, con un operator maturo (CloudNativePG, Percona, Strimzi per
+#    Kafka) che gestisce failover, backup e upgrade: lo StatefulSet da
+#    solo dà identità e disco, non la replica né il failover. Se il cloud
+#    offre il gestito (RDS, Cloud SQL) e il team è piccolo, di solito si
+#    sceglie quello: il costo operativo è il punto, non la fattibilità.
+#
+# D: Un nodo muore. Cosa succede al Pod db-1?
+# R: Il nodo va NotReady; dopo il timeout di eviction (default ~5 min,
+#    toleration not-ready/unreachable) il Pod è marcato per la
+#    cancellazione ma resta Terminating: lo StatefulSet NON crea un nuovo
+#    db-1 finché non è sicuro che il vecchio sia morto (garanzia "al più
+#    uno"). Con RWO il volume è ancora attaccato al nodo morto. Serve
+#    cancellare il nodo, o il taint node.kubernetes.io/out-of-service.
+#
+# D: PDB con minAvailable uguale alle repliche?
+# R: Il drain si blocca per sempre e l'upgrade del cluster pure.
+#    Su GKE/EKS è una causa frequente di upgrade bloccati.
+#
+# D: Come allarghi un PVC?
+# R: Se la StorageClass ha allowVolumeExpansion: true, modifichi
+#    resources.requests.storage del PVC. Nello StatefulSet il
+#    volumeClaimTemplates è immutabile: si edita ogni PVC, poi si ricrea lo
+#    StatefulSet con --cascade=orphan per allineare il template.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • StatefulSet = nome, DNS e disco stabili per ogni replica
+# • Service headless per i record DNS di ogni Pod
+# • PVC → StorageClass → PV; WaitForFirstConsumer per le zone
+# • partition per il canary, PVC retention per non perdere i dati
+# • PDB protegge dai drain, non dai guasti; mai minAvailable = repliche
+# ══════════════════════════════════════════════════════════════════════════

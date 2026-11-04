@@ -1,0 +1,161 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 02. DEPLOYMENT: ROLLING UPDATE, PROBE, RISORSE E SHUTDOWN PULITO
+# Versione: Kubernetes 1.34–1.35 (il lab minikube gira la 1.34.0) · apps/v1
+# Livello: 1 — Workload
+# ═══════════════════════════════════════════════════════════════════════════
+# Un Deployment non gestisce Pod: gestisce ReplicaSet. Ogni modifica al
+# pod template (immagine, env, annotazioni del template) crea un ReplicaSet
+# nuovo; il rollout sposta repliche dal vecchio al nuovo rispettando
+# maxSurge/maxUnavailable. I vecchi ReplicaSet restano a 0 repliche:
+# sono la storia per `kubectl rollout undo`.
+#
+# Zero-downtime NON è automatico. Servono tre cose insieme:
+#   1. readinessProbe   il Pod nuovo riceve traffico solo quando è pronto
+#   2. maxUnavailable 0 non togli capacità prima di averne aggiunta
+#   3. shutdown pulito  il Pod vecchio smette di ricevere traffico PRIMA
+#                       di morire (preStop + terminationGracePeriodSeconds)
+#
+# LAB
+#   kubectl config current-context                    # deve dire "lab"
+#   kubectl apply -f 02-deployment-rollout-probe.yaml
+#   kubectl -n lab rollout status deploy/web
+#   kubectl -n lab set image deploy/web web=traefik/whoami:v1.11
+#   kubectl -n lab annotate deploy/web kubernetes.io/change-cause="whoami v1.11" --overwrite
+#   kubectl -n lab rollout history deploy/web
+#     ↑ senza l'annotate anche la revisione 2 dice "prima versione":
+#       change-cause si copia dal Deployment a ogni rollout (provato)
+#   kubectl -n lab rollout undo deploy/web --to-revision=1
+#   kubectl -n lab get rs -o wide                     # i ReplicaSet della storia
+#   kubectl -n lab get pod -o custom-columns=NOME:.metadata.name,QOS:.status.qosClass
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: lab
+  labels:
+    app.kubernetes.io/name: web
+  annotations:
+    kubernetes.io/change-cause: "prima versione"   # compare in rollout history
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5          # quanti ReplicaSet vecchi tenere per l'undo
+  progressDeadlineSeconds: 120     # oltre: condition Progressing=False → la CI fallisce
+  minReadySeconds: 5               # pronto da 5 s prima di contare come "available"
+  selector:
+    matchLabels:                   # IMMUTABILE dopo la creazione
+      app.kubernetes.io/name: web
+  strategy:
+    type: RollingUpdate            # l'alternativa è Recreate (tutto giù, poi su)
+    rollingUpdate:
+      maxSurge: 1                  # al massimo 3+1 Pod durante il rollout
+      maxUnavailable: 0            # mai sotto 3 Pod pronti
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: web
+          image: traefik/whoami:v1.12
+          args: ["--port", "8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          # ── RISORSE E QoS ──────────────────────────────────────────────
+          # requests = cosa usa lo scheduler per piazzare il Pod
+          # limits   = tetto a runtime: CPU oltre il limite → throttling,
+          #            memoria oltre il limite → OOMKilled (exit 137)
+          # QoS: Guaranteed (req=lim su tutto) > Burstable > BestEffort:
+          # sotto pressione di memoria il kubelet sfratta dal basso.
+          # Prassi diffusa: limit di memoria sì, limit di CPU spesso no
+          # (il throttling CFS alza la latenza anche con CPU libera).
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          # ── PROBE ──────────────────────────────────────────────────────
+          # startup:   protegge l'avvio lento; finché non passa, le altre
+          #            due non partono. Budget = failureThreshold × period.
+          # readiness: fallisce → il Pod esce dagli EndpointSlice (niente
+          #            traffico) ma NON viene riavviato.
+          # liveness:  fallisce → il kubelet RIAVVIA il container.
+          # Errore classico: liveness che controlla il DB. Il DB rallenta,
+          # tutte le liveness falliscono, si riavvia tutto: hai trasformato
+          # un rallentamento in un'interruzione. La liveness controlla solo
+          # che il processo sia vivo; le dipendenze, se mai, la readiness.
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 2
+            failureThreshold: 30       # fino a 60 s per partire
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          # ── SHUTDOWN PULITO ────────────────────────────────────────────
+          # Alla cancellazione, IN PARALLELO: il kubelet manda SIGTERM e
+          # il control plane toglie il Pod dagli Endpoint. Il secondo è più
+          # lento: per qualche secondo kube-proxy/ingress mandano ancora
+          # richieste a un processo che sta chiudendo → 502.
+          # Il preStop "sleep" ritarda il SIGTERM finché il Pod è uscito
+          # dagli Endpoint. L'azione nativa `sleep` (beta dalla 1.30, stabile
+          # nella 1.34 del lab) non chiede /bin/sleep nell'immagine (whoami è
+          # FROM scratch). Riduce i 502, non garantisce da sola zero downtime.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities: { drop: ["ALL"] }
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Il rollout è bloccato a metà. Come lo diagnostichi?
+# R: `kubectl rollout status` (scade con progressDeadlineSeconds),
+#    `kubectl get rs` (il nuovo ha Pod non pronti), `describe pod` del
+#    nuovo: ImagePullBackOff, readiness che fallisce, Pending per risorse.
+#    Con maxUnavailable 0 il vecchio continua a servire: niente outage.
+#    Poi `kubectl rollout undo`.
+#
+# D: Perché cambiare un ConfigMap non riavvia i Pod?
+# R: Il ConfigMap non fa parte del pod template: il Deployment non vede
+#    differenze. Soluzioni: annotazione checksum nel template (Helm,
+#    lezione 09), configMapGenerator con suffisso hash (Kustomize,
+#    lezione 11), o `kubectl rollout restart` che aggiunge un'annotazione
+#    restartedAt al template.
+#
+# D: Exit code 137 vs 143?
+# R: 128+9 = SIGKILL (OOMKilled o grace period scaduto), 128+15 = SIGTERM
+#    gestito male. `kubectl get pod -o jsonpath='{.status.containerStatuses
+#    [0].lastState.terminated.reason}'` dice OOMKilled o Error.
+#
+# D: Blue/green e canary con un Deployment nudo?
+# R: Blue/green: due Deployment, il Service cambia selector. Canary
+#    rozzo: due Deployment con la stessa label del Service e repliche
+#    in proporzione. Canary vero (per percentuale, con analisi delle
+#    metriche): Argo Rollouts, Flagger, o pesi su Ingress/Traefik
+#    (corso HAProxy & Traefik).
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Deployment → ReplicaSet → Pod; ogni cambio del template = nuovo RS
+# • Zero-downtime = readiness + maxUnavailable 0 + preStop/grace period
+# • startup protegge l'avvio, readiness toglie traffico, liveness riavvia
+# • requests per lo scheduler, limits a runtime; QoS decide gli sfratti
+# • rollout status / history / undo; progressDeadlineSeconds per la CI
+# ══════════════════════════════════════════════════════════════════════════

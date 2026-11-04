@@ -1,0 +1,125 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 06. ANSIBLE: ARCHITETTURA, INVENTARIO, VARIABILI E COMANDI AD-HOC
+# Versione: ansible-core 2.21 · collection community.docker 5
+# Livello: 4 — Configuration management
+# ═══════════════════════════════════════════════════════════════════════════
+# Ansible è AGENTLESS e PUSH: dal "control node" si collega ai nodi (SSH
+# su Linux, WinRM su Windows), copia un piccolo programma Python per ogni
+# task (il MODULO), lo esegue e legge il JSON di risposta. Sui nodi serve
+# solo Python e un utente con sudo. Niente demoni, niente certificati.
+#
+# IDEMPOTENZA: il concetto chiave. Un modulo descrive uno STATO
+# ("pacchetto nginx presente", "riga X nel file") e cambia qualcosa solo
+# se serve. Seconda esecuzione = changed=0. È per questo che si usa
+# `apt: name=nginx state=present` e non `shell: apt-get install nginx`.
+#
+# PEZZI
+#   inventario   QUALI host, in quali gruppi, con quali variabili (questo file)
+#   modulo       un'azione idempotente (apt, copy, template, service, user…)
+#   task         un modulo con i suoi parametri
+#   play         task applicati a un gruppo di host
+#   playbook     una lista di play (lezione 07)
+#   ruolo        task/handler/template/default impacchettati e riusabili (08)
+#   collection   distribuzione di moduli, plugin e ruoli (community.docker…)
+#
+# LAB SU UBUNTU: i "server" sono container con systemd; Ansible ci entra
+# con il plugin di connessione docker invece che con SSH. Tutto il resto
+# (moduli, gruppi, variabili) è identico a un parco di VM.
+#   sudo apt-get install -y pipx && pipx install --include-deps ansible-core && pipx ensurepath
+#   ansible-galaxy collection install community.docker ansible.posix
+#   for n in web1 web2 db1; do
+#     docker run -d --name $n --hostname $n --privileged --cgroupns=host \
+#       -v /sys/fs/cgroup:/sys/fs/cgroup:rw geerlingguy/docker-ubuntu2404-ansible
+#   done
+#   mkdir -p ~/ansible && cd ~/ansible && cp 06-ansible-inventario-adhoc.yml inventory.yml
+#
+#   ansible-inventory -i inventory.yml --graph
+#   ansible-inventory -i inventory.yml --host web1        # variabili risolte
+#   ansible all -i inventory.yml -m ansible.builtin.ping
+#   ansible web -i inventory.yml -m ansible.builtin.setup -a 'filter=ansible_distribution*'
+#   ansible web -i inventory.yml -m ansible.builtin.apt -a 'name=tree state=present update_cache=true'
+#     ↑ rilancialo: la seconda volta è verde (changed: false) → idempotenza
+#   ansible db -i inventory.yml -m ansible.builtin.command -a 'uptime'
+#     ↑ sempre CHANGED: Ansible non sa cosa fa un comando (vedi changed_when)
+#   ansible 'web:!web2' -i inventory.yml -m ansible.builtin.ping   # pattern: web tranne web2
+#   (niente -o per l'output su una riga: deprecato in ansible-core 2.21)
+#
+# ansible.cfg consigliato (nella cartella del progetto, letto per primo):
+#   [defaults]
+#   inventory = inventory.yml
+#   forks = 20                  # host in parallelo (default 5)
+#   callbacks_enabled = ansible.posix.profile_tasks   # tempi per task
+#   [ssh_connection]
+#   pipelining = True           # meno round-trip SSH (richiede no requiretty)
+
+all:
+  vars:
+    # vale per tutti; in un parco vero: ansible_user, ansible_ssh_private_key_file
+    ansible_connection: community.docker.docker
+    ansible_python_interpreter: /usr/bin/python3
+    ambiente: lab
+    ntp_server: pool.ntp.org
+  children:
+    web:
+      hosts:
+        web1:
+          peso_lb: 100
+        web2:
+          peso_lb: 50          # variabile di host: vince su quella di gruppo
+      vars:
+        porta_http: 80
+        pacchetti: [nginx, curl]
+    db:
+      hosts:
+        db1:
+      vars:
+        pacchetti: [postgresql]
+    ubuntu:                    # un gruppo può contenere altri gruppi
+      children:
+        web:
+        db:
+
+# ── DOVE METTERE LE VARIABILI (in un progetto vero) ─────────────────────────
+#   group_vars/all.yml, group_vars/web.yml   per gruppo
+#   host_vars/web1.yml                       per host
+#   roles/x/defaults/main.yml                default del ruolo (priorità minima)
+#   -e "var=valore"                          extra vars (priorità MASSIMA)
+# La precedenza ha 22 livelli; quelli da ricordare, dal più debole:
+#   defaults del ruolo < group_vars/all < group_vars/gruppo < host_vars
+#   < vars del play < vars del ruolo < set_fact/register < -e
+#
+# ── INVENTARIO DINAMICO ─────────────────────────────────────────────────────
+# Su un cloud l'elenco dei server cambia: un plugin d'inventario lo legge
+# dall'API (amazon.aws.aws_ec2, google.cloud.gcp_compute, azure.azcollection,
+# community.docker.docker_containers) e crea i gruppi dai tag:
+#   plugin: amazon.aws.aws_ec2
+#   keyed_groups: [{ key: tags.Ruolo, prefix: ruolo }]   → gruppo ruolo_web
+# Così Terraform crea le VM con un tag e Ansible le trova da solo (lezione 10).
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: command, shell o un modulo?
+# R: Prima il modulo (idempotente, check mode, diff). command se non c'è
+#    un modulo (niente shell: niente pipe, redirect, variabili d'ambiente,
+#    meno rischio di injection). shell solo se servono pipe/redirect. Con
+#    command/shell si dichiara l'idempotenza: creates:, removes: o
+#    changed_when.
+#
+# D: Ansible vs Puppet/Chef?
+# R: Ansible: agentless, push, YAML, curva bassa, ottimo per
+#    orchestrazione (ordine tra host: prima il DB, poi le app, poi il LB).
+#    Puppet/Chef: agente sul nodo, pull periodico, convergenza continua
+#    sullo stato desiderato; più adatti a parchi enormi e stabili.
+#
+# D: Cosa sono i facts?
+# R: Informazioni raccolte dal modulo setup all'inizio del play (OS, IP,
+#    CPU, dischi): ansible_facts['distribution']. gather_facts: false se non
+#    servono (più veloce); fact caching (jsonfile, redis) per parchi grandi.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Agentless + push: SSH e Python sul nodo, nient'altro
+# • Moduli idempotenti: la seconda esecuzione non cambia niente
+# • Inventario YAML: gruppi, gruppi di gruppi, variabili per gruppo e host
+# • Precedenza: defaults ruolo < group_vars < host_vars < play < -e
+# • Cloud: inventario dinamico dai tag
+# ══════════════════════════════════════════════════════════════════════════

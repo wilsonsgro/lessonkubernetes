@@ -1,0 +1,167 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 07. SICUREZZA: RBAC, SERVICEACCOUNT E POD SECURITY ADMISSION
+# Versione: Kubernetes 1.34–1.35 (il lab minikube gira la 1.34.0) · rbac.authorization.k8s.io/v1 · PSA "restricted"
+# Livello: 3 — Sicurezza e operatività
+# ═══════════════════════════════════════════════════════════════════════════
+# Tre domande, in quest'ordine, a ogni richiesta all'apiserver:
+#   AUTENTICAZIONE  chi sei? certificato client, token OIDC (persone),
+#                   token del ServiceAccount (Pod). Kubernetes non ha
+#                   "utenti" come oggetti: un utente è un nome nel cert/token.
+#   AUTORIZZAZIONE  puoi farlo? RBAC: verbo + risorsa (+ nome) + namespace
+#   ADMISSION       è accettabile? PSA, policy (Kyverno, ValidatingAdmissionPolicy)
+#
+# RBAC IN 4 OGGETTI
+#   Role / ClusterRole              COSA si può fare (solo allow, additivo)
+#   RoleBinding / ClusterRoleBinding  A CHI, e DOVE
+#   Un ClusterRole legato con un RoleBinding vale solo in quel namespace:
+#   è il modo per riusare un ruolo standard ("view", "edit") per team.
+#
+# VERBI CHE SORPRENDONO
+#   get su secrets           = leggere TUTTI i segreti (con list, senza nome)
+#   create su pods           = leggere ogni secret/SA del namespace
+#                              (monti il secret o il token in un Pod tuo)
+#   escalate / bind / impersonate = scalare i propri privilegi
+#   pods/exec, nodes/proxy   = esecuzione di comandi
+#
+# LAB
+#   kubectl apply -f 07-rbac-pod-security.yaml
+#   SA=system:serviceaccount:lab-sicuro:deployer
+#   kubectl auth can-i get pods  -n lab-sicuro --as=$SA      # yes
+#   kubectl auth can-i get secrets -n lab-sicuro --as=$SA    # no
+#   kubectl auth can-i patch deployments -n lab --as=$SA     # no: altro namespace
+#   kubectl auth can-i --list -n lab-sicuro --as=$SA
+#   kubectl -n lab-sicuro run root --image=busybox:1.37 -- sleep 1d
+#     ↑ RIFIUTATO dalla PSA "restricted": il messaggio elenca cosa manca
+#   kubectl -n lab-sicuro get pod                            # nginx Running
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-sicuro
+  labels:
+    # Pod Security Admission (nativa, sostituisce PodSecurityPolicy):
+    #   enforce rifiuta · audit annota · warn avvisa il client
+    # livelli: privileged | baseline | restricted
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deployer
+  namespace: lab-sicuro
+automountServiceAccountToken: false   # il token si monta solo dove serve
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deployer
+  namespace: lab-sicuro
+rules:
+  - apiGroups: [""]                   # "" = core API (pods, services, configmaps)
+    resources: [pods, pods/log, services, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, update, patch]
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    verbs: [patch]
+  # niente secrets, niente pods/exec, niente delete: minimo privilegio
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer
+  namespace: lab-sicuro
+subjects:
+  - kind: ServiceAccount
+    name: deployer
+    namespace: lab-sicuro
+roleRef:                              # IMMUTABILE: per cambiarlo si ricrea
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: deployer
+---
+# Un Pod che passa la PSA "restricted": è il securityContext che ogni
+# workload dovrebbe avere, non un caso speciale.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: lab-sicuro
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: nginx }
+  template:
+    metadata:
+      labels: { app: nginx }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101                 # l'utente nginx dell'immagine unprivileged
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault         # richiesto da restricted
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.31-alpine   # ascolta su 8080, non su 80
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:                # con root read-only, le cartelle
+            - { name: tmp, mountPath: /tmp }    # scrivibili si dichiarano
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+# ── OLTRE IL CLUSTER: LA CATENA DI FORNITURA ────────────────────────────────
+#   • immagini firmate (cosign/Sigstore) e verificate all'admission
+#   • scansione CVE in CI (Trivy, Grype) e SBOM (Syft)
+#   • immagini distroless o FROM scratch, tag immutabili o digest @sha256
+#   • policy as code: Kyverno / OPA Gatekeeper / ValidatingAdmissionPolicy
+#     ("niente :latest", "requests obbligatorie", "solo registry interni")
+#   • runtime: Falco per syscall sospette
+#   • Workload Identity / IRSA: il Pod ottiene credenziali cloud dal suo
+#     ServiceAccount, senza chiavi statiche nei Secret
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Come dai a un team accesso in sola lettura al suo namespace?
+# R: RoleBinding nel namespace verso il ClusterRole predefinito "view",
+#    con subject il gruppo OIDC del team (non i singoli utenti).
+#
+# D: Perché "view" non include i secrets e "edit" sì?
+# R: Leggere un secret è un'escalation (token, password). "edit" include
+#    la creazione di Pod, che dà comunque accesso ai secret: per questo
+#    edit ≈ chi può leggere i secret del namespace.
+#
+# D: Un Pod viene rifiutato con "violates PodSecurity restricted".
+# R: Il messaggio elenca i campi: allowPrivilegeEscalation, capabilities,
+#    runAsNonRoot, seccompProfile. Si corregge il securityContext; per
+#    migrare un namespace prima si mette warn/audit, si guarda cosa
+#    romperebbe, poi enforce.
+#
+# D: Il token del ServiceAccount: com'è fatto oggi?
+# R: Token proiettato (BoundServiceAccountToken): JWT con audience e
+#    scadenza (1 h, rinnovato dal kubelet), legato al Pod. I vecchi
+#    Secret di tipo token senza scadenza non si creano più in automatico.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Authn → Authz (RBAC) → Admission, sempre in quest'ordine
+# • Role/ClusterRole = cosa; (Cluster)RoleBinding = a chi e dove
+# • create pods ≈ leggere i secret: il minimo privilegio si verifica con can-i
+# • PSA restricted per namespace: non-root, no escalation, drop ALL, seccomp
+# • Supply chain: firma, scansione, policy, identità senza chiavi statiche
+# ══════════════════════════════════════════════════════════════════════════

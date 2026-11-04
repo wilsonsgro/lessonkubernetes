@@ -1,0 +1,215 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 13. OBSERVABILITY: METRICHE, LOG, ALERT CON PROMETHEUS SU KUBERNETES
+# Versione: kube-prometheus-stack (Prometheus Operator) · Grafana · Loki · OpenTelemetry
+# Livello: 5 — Produzione
+# ═══════════════════════════════════════════════════════════════════════════
+# Monitoraggio = sapere SE qualcosa è rotto (domande note in anticipo).
+# Observability = capire PERCHÉ, anche per guasti mai visti, dai segnali:
+#   METRICHE  numeri nel tempo, economici, per gli alert   → Prometheus
+#   LOG       eventi con contesto, costosi, per il dettaglio → Loki / ELK
+#   TRACCE    il percorso di UNA richiesta tra i servizi    → Tempo / Jaeger
+#   OpenTelemetry = lo standard per produrli tutti e tre (SDK + Collector)
+#   Il ponte: un trace_id nei log e negli exemplar delle metriche.
+#
+# COSA MISURARE
+#   RED   (servizi)  Rate, Errors, Duration
+#   USE   (risorse)  Utilization, Saturation, Errors
+#   Golden signals (Google SRE): latenza, traffico, errori, saturazione
+#
+# PROMETHEUS IN 6 RIGHE
+#   • PULL: Prometheus fa scrape di /metrics ogni N secondi
+#   • tipi: counter (solo sale: si usa con rate()), gauge, histogram, summary
+#   • ogni combinazione di label = una serie: user_id come label = esplosione
+#     di cardinalità e Prometheus che finisce la memoria
+#   • alert = regola PromQL vera per `for:` minuti → Alertmanager
+#   • Alertmanager: raggruppa, deduplica, silenzia, inibisce, instrada
+#   • lungo periodo / HA: Thanos, Mimir, VictoriaMetrics (remote_write)
+#
+# CON L'OPERATOR non si edita prometheus.yml: si creano CRD
+#   ServiceMonitor / PodMonitor  COSA fare scrape (per label del Service)
+#   PrometheusRule               regole di registrazione e alert
+#   AlertmanagerConfig           instradamento per namespace
+#
+# LAB (minikube "lab": ~1,5 GB di RAM in più)
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm upgrade --install mon prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace \
+#     --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+#     --set prometheus.prometheusSpec.ruleSelectorNilUsesHelmValues=false \
+#     --set prometheus-node-exporter.hostRootFsMount.enabled=false \
+#     --wait --timeout 10m
+#   ↑ l'ultima --set serve quando il "nodo" è un container (minikube con driver
+#     docker, kind, k3s in Docker): senza, node-exporter resta in
+#     CreateContainerError 'path "/" is mounted on "/" but it is not a shared mount'
+#   kubectl apply -f 13-observability.yaml
+#   kubectl -n monitoring port-forward svc/mon-kube-prometheus-stack-prometheus 9090
+#     → http://localhost:9090/targets  (lab-oss/app deve essere UP)
+#     → http://localhost:9090/alerts
+#   kubectl -n monitoring port-forward svc/mon-grafana 3001:80
+#     password: kubectl -n monitoring get secret mon-grafana -o jsonpath='{.data.admin-password}' | base64 -d
+#   Genera errori e guarda l'alert passare a pending e poi firing:
+#   kubectl -n lab-oss run carico --rm -it --image=busybox:1.37 -- \
+#     sh -c 'while true; do wget -q -O- http://app:8080/err; wget -q -O- http://app:8080/; done'
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-oss
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  namespace: lab-oss
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: app }
+  template:
+    metadata:
+      labels: { app: app }
+    spec:
+      containers:
+        - name: app
+          # espone /metrics con http_requests_total{code,method} e un istogramma
+          image: quay.io/brancz/prometheus-example-app:v0.5.0
+          ports:
+            - { name: web, containerPort: 8080 }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  namespace: lab-oss
+  labels: { app: app }              # il ServiceMonitor seleziona QUESTE label
+spec:
+  selector: { app: app }
+  ports:
+    - { name: web, port: 8080, targetPort: web }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: app
+  namespace: lab-oss
+spec:
+  selector:
+    matchLabels: { app: app }
+  endpoints:
+    - port: web                     # il NOME della porta del Service
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: app-slo
+  namespace: lab-oss
+spec:
+  groups:
+    # ERRORI = code=~"5.." in produzione: i 4xx sono quasi sempre colpa del
+    # client e non consumano lo SLO. In QUESTO lab l'app sa rispondere solo
+    # 200 e 404 (/err dà 404, provato), quindi qui gli errori sono [45]..:
+    # così vedi l'alert scattare. Su un servizio vero: rimetti 5..
+    - name: app.registrazioni
+      rules:
+        # recording rule: calcolata ogni intervallo, interrogata a costo zero
+        - record: job:http_requests:rate5m
+          expr: sum by (job) (rate(http_requests_total[5m]))
+        - record: job:http_errori:ratio_rate5m
+          expr: |
+            sum by (job) (rate(http_requests_total{code=~"[45].."}[5m]))
+            /
+            sum by (job) (rate(http_requests_total[5m]))
+    - name: app.alert
+      rules:
+        # ALERT SUL SINTOMO (gli utenti vedono errori), non sulla causa
+        - alert: AppErroriAlti
+          expr: job:http_errori:ratio_rate5m{job="app"} > 0.05
+          for: 2m                   # niente pagine per un picco di 30 secondi
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.job }}: {{ $value | humanizePercentage }} di risposte in errore"
+            runbook_url: "https://wiki.example.invalid/runbook/app-errori"
+        # SLO 99,9% → error budget 0,1%. Burn rate 14,4 su 1 h = budget
+        # mensile consumato in ~2 giorni: pagina. (Google SRE workbook)
+        - alert: AppErrorBudgetBruciaVeloce
+          expr: |
+            (
+              sum(rate(http_requests_total{job="app",code=~"[45].."}[1h]))
+              / sum(rate(http_requests_total{job="app"}[1h]))
+            ) > (14.4 * 0.001)
+            and
+            (
+              sum(rate(http_requests_total{job="app",code=~"[45].."}[5m]))
+              / sum(rate(http_requests_total{job="app"}[5m]))
+            ) > (14.4 * 0.001)
+          labels:
+            severity: critical
+          annotations:
+            summary: "Error budget dello SLO 99.9% in esaurimento rapido"
+        - alert: AppPodInRestart
+          expr: increase(kube_pod_container_status_restarts_total{namespace="lab-oss"}[15m]) > 3
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.pod }} si è riavviato più di 3 volte in 15 minuti"
+
+# ── PROMQL CHE TI CHIEDONO ──────────────────────────────────────────────────
+#   rate(http_requests_total[5m])                     richieste/s (counter!)
+#   sum by (code) (rate(http_requests_total[5m]))     per codice di risposta
+#   histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
+#                                                      p95 della latenza
+#   sum by (pod) (container_memory_working_set_bytes{namespace="lab-oss"})
+#                                                      memoria (quella che conta per l'OOM)
+#   sum(rate(container_cpu_cfs_throttled_periods_total[5m])) by (pod)
+#     / sum(rate(container_cpu_cfs_periods_total[5m])) by (pod)
+#                                                      throttling da limit CPU
+#   kube_deployment_status_replicas_available / kube_deployment_spec_replicas
+#
+# LOG SU KUBERNETES
+#   L'app scrive su stdout/stderr in JSON; il runtime salva i file sul nodo;
+#   un DaemonSet (Promtail/Alloy, Fluent Bit, Vector) li legge, aggiunge le
+#   label del Pod e li manda a Loki/Elasticsearch. Loki indicizza solo le
+#   label, non il testo: economico, ma le label vanno tenute poche (come
+#   in Prometheus). Query LogQL: {namespace="lab-oss"} |= "error" | json
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Alert sulla CPU all'80%: buono o cattivo?
+# R: Cattivo come pagina: la CPU alta non è un problema finché la latenza
+#    e gli errori sono buoni (forse è efficienza). Si pagina sui sintomi
+#    (SLO); le cause (CPU, disco) diventano ticket o dashboard. Eccezione:
+#    la saturazione che porta a un guasto certo (disco pieno tra 4 ore →
+#    predict_linear).
+#
+# D: rate o irate? E perché mai rate su un gauge?
+# R: rate media sulla finestra ed è giusto per gli alert; irate usa gli
+#    ultimi due punti, utile per grafici molto reattivi. rate gestisce i
+#    reset dei counter (restart): su un gauge darebbe numeri senza senso;
+#    per i gauge si usa deriv/delta.
+#
+# D: Prometheus non vede il mio ServiceMonitor.
+# R: 1) le label del ServiceMonitor combaciano con il serviceMonitorSelector
+#    del Prometheus (con kube-prometheus-stack di default serve la label
+#    release=<nome>, per questo nel lab lo si apre a tutti); 2) il namespace
+#    è tra quelli osservati; 3) il selector del ServiceMonitor combacia con
+#    le label del SERVICE (non del Pod); 4) `port` è il NOME della porta.
+#    Poi /targets mostra l'errore di scrape.
+#
+# D: Come eviti 200 notifiche quando cade un nodo?
+# R: Alertmanager: group_by (cluster, alertname), inhibit_rules (se c'è
+#    NodeDown, silenzia gli alert dei Pod su quel nodo), e alert sul
+#    sintomo a livello di servizio invece che di singolo Pod.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Metriche (Prometheus), log (Loki), tracce (Tempo) + OpenTelemetry
+# • RED per i servizi, USE per le risorse; cardinalità sotto controllo
+# • Operator: ServiceMonitor (cosa scrape) + PrometheusRule (regole)
+# • Alert sui sintomi e sugli SLO (burn rate), con for: e runbook
+# • Alertmanager: raggruppa, inibisce, instrada
+# ══════════════════════════════════════════════════════════════════════════

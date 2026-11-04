@@ -1,0 +1,201 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 17. DENTRO IL POD: INIT CONTAINER, SIDECAR NATIVI, CICLO DI VITA
+# Versione: Kubernetes 1.34–1.35 (il lab minikube gira la 1.34.0)
+# Livello: 1 — Workload
+# ═══════════════════════════════════════════════════════════════════════════
+# Il Pod è l'unità che lo scheduler piazza: un container non gira mai da
+# solo, gira sempre dentro un Pod. Il Pod non è "un container con un nome":
+# è un piccolo host logico. Tutti i suoi container finiscono sullo STESSO
+# nodo e condividono:
+#   rete     un solo IP, un solo spazio di porte: si parlano su localhost
+#   hostname il nome del Pod (per questo deve essere un nome DNS valido)
+#   volumi   quelli dichiarati in spec.volumes, montati dove serve
+#   IPC      memoria condivisa e semafori
+# Il filesystem dei container invece NON è condiviso: si passa da un volume.
+# A tenere in piedi i namespace del kernel del Pod c'è il container "pause".
+#
+# UN POD, TANTI CONTAINER: QUANDO HA SENSO
+# Due container stanno nello stesso Pod se nascono, scalano e muoiono
+# insieme. Si scala aggiungendo Pod, mai mettendo due copie dell'app nello
+# stesso Pod. I ruoli classici:
+#   init       prepara e finisce: migrazioni, attesa di una dipendenza,
+#              permessi su un volume. Uno alla volta, in ordine, ognuno
+#              deve uscire con 0 prima del successivo
+#   sidecar    affianca l'app per tutta la vita: log shipper, proxy mTLS,
+#              ricarica della config, git-sync
+#   adapter    traduce l'uscita dell'app (es. metriche in formato Prometheus)
+#   ambassador fa da proxy verso l'esterno (l'app parla con localhost)
+#
+# SIDECAR NATIVI (stabili dalla 1.33; nel lab il feature gate
+# SidecarContainers è GA): un initContainer con `restartPolicy: Always`.
+#   • parte nell'ordine degli init, ma NON blocca: appena è avviato (o
+#     appena passa la sua startupProbe) parte l'init successivo
+#   • resta acceso per tutta la vita del Pod e viene riavviato se cade
+#   • si spegne DOPO i container applicativi, in ordine inverso
+#   • non tiene in vita un Job: quando l'app finisce, il Pod finisce
+# Prima della 1.28 un sidecar era un container normale: partiva in ordine
+# casuale rispetto all'app e teneva i Job "Running" per sempre.
+#
+# Misurato sul lab: un sidecar `sh -c "while …"` ignora SIGTERM (è il PID 1
+# del container, e PID 1 non ha handler di default). Il kubelet aspetta
+# tutto terminationGracePeriodSeconds (30 s) e poi lo uccide: stato
+# Error/137. Il Pod risulta comunque Succeeded. Rimedio: `trap` sul TERM,
+# o un processo che gestisce il segnale.
+#
+# FASE DEL POD ≠ COLONNA STATUS
+# La fase (.status.phase) ha cinque valori: Pending, Running, Succeeded,
+# Failed, Unknown. Quello che `kubectl get pod` mostra in STATUS è una
+# sintesi più fine: Init:0/2, PodInitializing, CrashLoopBackOff, Completed,
+# Terminating… CrashLoopBackOff, per esempio, è un Pod in fase Running con
+# un container che riparte con attese crescenti (10 s, 20 s, … fino a 5 min).
+#
+# restartPolicy (di Pod) vale per i container applicativi:
+#   Always     (default, obbligatoria nei Deployment) riparte sempre
+#   OnFailure  riparte solo se esce ≠ 0 (Job)
+#   Never      non riparte (Job, Pod di debug)
+#
+# I POD SONO (QUASI) IMMUTABILI
+# Su un Pod già creato si possono cambiare solo: l'immagine dei container
+# (il kubelet lo riavvia: "Killing … definition changed", e se il processo
+# ignora SIGTERM il cambio arriva dopo i 30 s di grazia, misurato sul lab),
+# activeDeadlineSeconds, aggiunte alle tolerations, e poco altro (le
+# risorse con il resize in-place, beta nella 1.34). Tutto il resto dà
+# "Forbidden: pod updates may not change fields other than…". Per questo
+# non si modifica un Pod: si cambia il template del Deployment e il
+# ReplicaSet ne crea di nuovi. Un Pod senza controller, se il nodo muore,
+# non rinasce da nessuna parte.
+# (Il libro di riferimento chiama "statici" i Pod senza controller: in
+# Kubernetes "static Pod" è un'altra cosa, quelli letti dal kubelet da
+# /etc/kubernetes/manifests — lezione 01.)
+#
+# LAB  (lo script guidato è ~/kubernetesprj/kubernetes/17-pod-multicontainer.sh)
+#   kubectl apply -f 17-pod-multicontainer.yaml
+#   kubectl -n lab-pod get pod ciclo -w        # Init:0/1: aspetta il Service
+#   kubectl -n lab-pod create service clusterip db-finto --tcp=5432:5432
+#   kubectl -n lab-pod logs web-log -c spedisci          # il sidecar legge il log
+#   kubectl -n lab-pod exec web-log -c spedisci -- wget -qO- localhost:80
+#   kubectl -n lab-pod get job lavoro          # Complete anche col sidecar acceso
+#   kubectl -n lab-pod patch pod web-log -p '{"spec":{"containers":[{"name":"app","ports":[{"containerPort":81}]}]}}'
+#     ↑ Forbidden: il Pod è immutabile
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-pod
+---
+# 1) Init container che aspetta una dipendenza.
+#    nslookup di busybox NON applica i search domain del resolv.conf
+#    (misurato: "kubernetes.default" → NXDOMAIN): qui il nome è completo.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ciclo
+  namespace: lab-pod
+spec:
+  initContainers:
+    - name: attendi-db
+      image: busybox:1.37
+      command: ["sh", "-c", "until nslookup db-finto.lab-pod.svc.cluster.local; do echo aspetto db-finto; sleep 2; done"]
+  containers:
+    - name: app
+      image: busybox:1.37
+      command: ["sh", "-c", "echo dipendenza trovata, parto; sleep 3600"]
+      resources:
+        requests: { cpu: 5m, memory: 8Mi }
+        limits: { memory: 16Mi }
+---
+# 2) App + sidecar nativo che ne segue il log e la controlla su localhost.
+#    whoami è FROM scratch: niente shell, niente tail. Il sidecar porta gli
+#    strumenti; l'app resta minima.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web-log
+  namespace: lab-pod
+spec:
+  initContainers:
+    - name: spedisci
+      image: busybox:1.37
+      restartPolicy: Always            # ← questo lo rende un sidecar nativo
+      command: ["sh", "-c", "trap 'exit 0' TERM; touch /log/accessi; tail -F /log/accessi & wait"]
+      volumeMounts:
+        - { name: log, mountPath: /log }
+      resources:
+        requests: { cpu: 5m, memory: 8Mi }
+        limits: { memory: 16Mi }
+  containers:
+    - name: app
+      image: traefik/whoami:v1.12
+      args: ["--port", "80"]
+      ports:
+        - containerPort: 80
+      volumeMounts:
+        - { name: log, mountPath: /log }
+      resources:
+        requests: { cpu: 5m, memory: 16Mi }
+        limits: { memory: 32Mi }
+    - name: cliente
+      image: busybox:1.37
+      command: ["sh", "-c", "trap 'exit 0' TERM; while true; do wget -qO- localhost:80 | head -1 >> /log/accessi; sleep 5; done & wait"]
+      volumeMounts:
+        - { name: log, mountPath: /log }
+      resources:
+        requests: { cpu: 5m, memory: 8Mi }
+        limits: { memory: 16Mi }
+  volumes:
+    - name: log
+      emptyDir: {}                     # vive e muore con il Pod
+---
+# 3) Job con sidecar: prima della 1.28 non finiva mai.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lavoro
+  namespace: lab-pod
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 5
+      initContainers:
+        - name: battito
+          image: busybox:1.37
+          restartPolicy: Always
+          command: ["sh", "-c", "trap 'exit 0' TERM; while true; do date; sleep 1; done & wait"]
+      containers:
+        - name: calcola
+          image: busybox:1.37
+          command: ["sh", "-c", "echo calcolo; sleep 10; echo finito"]
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Differenza fra init container e sidecar?
+# R: L'init gira prima dell'app, uno alla volta, e deve finire con 0. Il
+#    sidecar nativo è un init con restartPolicy: Always: parte prima
+#    dell'app, resta acceso per tutta la vita del Pod, si spegne dopo.
+#
+# D: Il mio Job resta Running anche se il lavoro è finito. Perché?
+# R: Quasi sempre un sidecar dichiarato come container normale (proxy di
+#    una service mesh, agente di log): il Pod finisce solo quando finiscono
+#    tutti i container. Dalla 1.29 lo si dichiara come sidecar nativo.
+#
+# D: Due container dello stesso Pod come comunicano?
+# R: Su localhost (stessa rete) o tramite un volume condiviso (emptyDir).
+#    Non vedono il filesystem l'uno dell'altro.
+#
+# D: Il Pod è Running ma STATUS dice CrashLoopBackOff. Contraddizione?
+# R: No: la fase è Running, un container riparte con backoff esponenziale.
+#    `kubectl logs --previous` mostra l'uscita dell'istanza caduta.
+#
+# D: Posso cambiare le porte di un Pod in esecuzione?
+# R: No, il Pod è quasi immutabile (si cambia l'immagine, poco altro). Si
+#    cambia il template del controller e si fa un rollout.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Pod = host logico: stesso nodo, IP, porte, hostname e volumi
+# • init: in ordine, fino a exit 0 · sidecar nativo: init con restartPolicy: Always
+# • il sidecar nativo non blocca i Job; senza trap su TERM muore a 137 dopo la grazia
+# • fase (5 valori) ≠ STATUS di kubectl (CrashLoopBackOff, Init:0/1…)
+# • Pod quasi immutabile: si cambia il template, non il Pod
+# ══════════════════════════════════════════════════════════════════════════

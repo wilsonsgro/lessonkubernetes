@@ -1,0 +1,161 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 03. RETE: SERVICE, INGRESS E NETWORKPOLICY
+# Versione: Kubernetes 1.34–1.35 (il lab minikube gira la 1.34.0) · ingress-nginx (addon minikube) · Calico
+# Livello: 1 — Workload
+# ═══════════════════════════════════════════════════════════════════════════
+# I Pod sono effimeri e cambiano IP. Un Service dà un nome DNS e un IP
+# virtuale stabili davanti a un insieme di Pod scelto per LABEL.
+#
+#   Service ──selector──▶ EndpointSlice (IP dei Pod PRONTI) ◀── kube-proxy
+#
+# Il ClusterIP non esiste su nessuna interfaccia: è una regola iptables/
+# IPVS/nftables che kube-proxy scrive su ogni nodo e che fa DNAT verso un
+# Pod a caso. Per questo `ping` a un ClusterIP non risponde, `curl` sì.
+#
+# TIPI DI SERVICE
+#   ClusterIP     solo dentro il cluster (default)
+#   NodePort      + una porta 30000-32767 su OGNI nodo
+#   LoadBalancer  + un LB esterno del cloud (in locale: MetalLB, minikube tunnel)
+#   ExternalName  un CNAME DNS, niente proxy
+#   headless      clusterIP: None → il DNS restituisce gli IP dei Pod
+#                 (StatefulSet, lezione 05)
+#
+# DNS: <service>.<namespace>.svc.cluster.local
+#   da un Pod in "lab", basta "web"; da un altro namespace "web.lab".
+#
+# LAB (richiede la lezione 02 applicata)
+#   kubectl apply -f 03-service-ingress-networkpolicy.yaml
+#   kubectl -n lab get endpointslices -l kubernetes.io/service-name=web
+#   kubectl -n lab run curl --rm -it --image=curlimages/curl:8.23.0 \
+#       --labels=ruolo=client -- sh -c 'sleep 8; curl -s web/api'      # passa
+#   kubectl -n lab run intruso --rm -it --image=curlimages/curl:8.23.0 \
+#       -- sh -c 'sleep 8; curl -s -m 3 web/api'                        # bloccato
+#   curl -H 'Host: web.lab.local' http://$(minikube -p lab ip)/api
+#
+#   Perché lo sleep: il CNI impara l'IP di un Pod appena nato con qualche
+#   secondo di ritardo. Senza sleep anche il client AUTORIZZATO viene
+#   bloccato (provato su k3s). In produzione: un Pod che chiama una
+#   dipendenza al primo istante deve riprovare, non morire al primo errore.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: lab
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: web     # deve combaciare con le label del pod template
+  ports:
+    - name: http
+      port: 80                      # la porta del Service
+      targetPort: http              # il NOME della porta nel container: rinominare
+                                    # la porta del container non rompe il Service
+---
+# ── INGRESS ─────────────────────────────────────────────────────────────────
+# Ingress = regole L7 (host, path, TLS). Da solo non fa niente: serve un
+# Ingress Controller (ingress-nginx, Traefik, HAProxy Ingress…) scelto con
+# ingressClassName. Il successore è la Gateway API (GatewayClass, Gateway,
+# HTTPRoute): ruoli separati tra chi gestisce il LB e chi l'app, pesi per
+# il canary, header matching standard senza annotazioni del vendor.
+# Nota: il progetto ingress-nginx è stato ritirato (manutenzione finita a
+# marzo 2026): nei progetti nuovi si sceglie Gateway API o Traefik.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web
+  namespace: lab
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: web.lab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix        # Prefix | Exact | ImplementationSpecific
+            backend:
+              service:
+                name: web
+                port:
+                  name: http
+---
+# ── NETWORKPOLICY ───────────────────────────────────────────────────────────
+# Di default tutto parla con tutto. Le policy sono ADDITIVE (solo "allow"):
+# appena una policy seleziona un Pod per Ingress, quel Pod accetta solo ciò
+# che qualche policy permette. Le applica il CNI: con un CNI che non le
+# supporta l'apply riesce e NON SUCCEDE NIENTE (per questo il lab usa Calico).
+#
+# 1) default deny in ingresso per tutto il namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: lab
+spec:
+  podSelector: {}                   # {} = tutti i Pod del namespace
+  policyTypes: [Ingress]
+---
+# 2) web accetta: dai Pod con ruolo=client dello stesso namespace,
+#    e dal controller ingress (namespace ingress-nginx)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-allow
+  namespace: lab
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        # due elementi della lista = OR
+        - podSelector:
+            matchLabels:
+              ruolo: client
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: http                # la porta del POD (8080), non del Service
+# Trappola dell'indentazione:
+#   - namespaceSelector: {...}       ← un elemento con DUE condizioni = AND
+#     podSelector: {...}               (quei Pod DENTRO quel namespace)
+#   - namespaceSelector: {...}       ← due elementi = OR
+#   - podSelector: {...}
+#
+# Egress: con un default deny in uscita ricordati del DNS, altrimenti
+# niente risolve più niente:
+#   egress:
+#     - to: [{ namespaceSelector: {}, podSelector: { matchLabels: { k8s-app: kube-dns } } }]
+#       ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Un Service non risponde. Ordine dei controlli?
+# R: 1) `kubectl get endpointslices`: vuoti → selector sbagliato o Pod non
+#    ready. 2) targetPort giusta? 3) dal Pod: curl su localhost:porta.
+#    4) DNS: `nslookup web.lab` da un Pod. 5) NetworkPolicy che blocca.
+#
+# D: externalTrafficPolicy: Local vs Cluster?
+# R: Cluster (default): ogni nodo inoltra a qualunque Pod, con SNAT → il
+#    Pod vede l'IP del nodo, non del client. Local: solo ai Pod del nodo,
+#    IP del client preservato, ma nodi senza Pod falliscono l'health
+#    check del LB e il carico può sbilanciarsi.
+#
+# D: Ingress vs Service LoadBalancer?
+# R: LoadBalancer = un LB (e un IP, e un costo) per Service, L4.
+#    Ingress = un solo LB L7 per molti Service, con host/path e TLS.
+#
+# D: Perché un Pod pronto non riceve traffico subito dopo un rollout?
+# R: Propagazione: EndpointSlice → kube-proxy su ogni nodo → regole.
+#    Sono secondi, ed è lo stesso ritardo che rende necessario il preStop
+#    allo spegnimento (lezione 02).
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Service = nome + IP virtuale stabile; i Pod li sceglie il selector
+# • EndpointSlice contiene solo i Pod pronti (readiness)
+# • Ingress = regole L7, serve un controller; il futuro è la Gateway API
+# • NetworkPolicy additive, applicate dal CNI; default deny + allow
+# • podSelector e namespaceSelector: stesso elemento = AND, due = OR
+# ══════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mio-sito
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: http://gitea.gitea.svc.cluster.local:3000/wilson/mio-progetto.git
+    targetRevision: HEAD
+    path: kubernetes
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mio-sito
+
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false
+    syncOptions:
+      - CreateNamespace=true

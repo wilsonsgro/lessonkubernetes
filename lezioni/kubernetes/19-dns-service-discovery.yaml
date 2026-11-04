@@ -1,0 +1,209 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 19. DNS E SERVICE DISCOVERY: DAL NOME ALL'IP, PASSO PER PASSO
+# Versione: Kubernetes 1.34–1.35 (il lab minikube gira la 1.34.0)
+# Livello: 1 — Workload
+# ═══════════════════════════════════════════════════════════════════════════
+# Service discovery = registrazione + ricerca. In Kubernetes la
+# registrazione è automatica: crei un Service, e CoreDNS (che osserva
+# l'apiserver) pubblica il suo nome. Il client deve solo sapere il nome.
+#
+# LA CATENA COMPLETA, DA `curl http://api` AL POD
+#   1. il container legge /etc/resolv.conf (lo scrive il kubelet)
+#   2. chiede a CoreDNS (Service kube-dns in kube-system, nel lab 10.96.0.10)
+#   3. CoreDNS risponde con il ClusterIP del Service
+#   4. il pacchetto verso il ClusterIP viene riscritto sul nodo da kube-proxy
+#      (regole iptables; nel lab mode "" = iptables) verso l'IP di un Pod
+#      preso dalle EndpointSlice
+# Il ClusterIP non è di nessuna interfaccia: esiste solo nelle regole NAT.
+# Per questo un ping al ClusterIP non risponde, mentre la porta sì.
+#
+# IL resolv.conf DI UN POD (misurato nel lab, namespace lab)
+#   nameserver 10.96.0.10
+#   search lab.svc.cluster.local svc.cluster.local cluster.local nexxt
+#   options ndots:5
+# Le prime tre voci di search le mette Kubernetes, a partire dal namespace
+# del Pod. L'ultima ("nexxt") è il dominio di ricerca della rete di casa:
+# il nodo la eredita dall'host e il kubelet la passa ai Pod.
+#
+# I NOMI
+#   api                               stesso namespace
+#   api.prod                          un altro namespace (basta questo)
+#   api.prod.svc.cluster.local        nome completo (FQDN)
+#   api.prod.svc.cluster.local.       FQDN assoluto: il punto finale salta
+#                                     la search list
+#   db-0.db.prod.svc.cluster.local    un Pod di uno StatefulSet dietro un
+#                                     Service headless (lezione 05)
+#   _http._tcp.api.prod.svc.cluster.local   record SRV della porta "http"
+#
+# ndots:5, IL COSTO NASCOSTO
+# Un nome con MENO di 5 punti viene provato prima con ogni search domain, e
+# solo alla fine come assoluto. `example.com` (1 punto) dal namespace
+# verifica ha prodotto, misurato con tcpdump nel lab, 5 domande A:
+#   example.com.verifica.svc.cluster.local.   NXDOMAIN
+#   example.com.svc.cluster.local.            NXDOMAIN
+#   example.com.cluster.local.                NXDOMAIN
+#   example.com.nexxt.                        (esce dal cluster!)
+#   example.com.                              ← quella giusta
+# e altrettante AAAA: 10 domande per un nome solo (curl, resolver musl).
+# Con `example.com.` (punto finale): una A e una AAAA, e basta.
+# Il penultimo tentativo va al DNS della rete di casa: una perdita di
+# informazioni e un ritardo, non solo traffico.
+# Vale anche per i nomi interni: `web.lab-dns.svc.cluster.local` ha 4 punti,
+# meno di 5. Dal log di CoreDNS nel lab, prima della risposta giusta
+# (0,2 ms) sono passate …cluster.local.cluster.local e …nexxt: quest'ultima
+# è uscita verso il router di casa e ha impiegato 280 ms.
+# Rimedi, dal più al meno locale:
+#   • nomi esterni scritti con il punto finale nella config dell'app
+#   • spec.dnsConfig.options ndots: "1" o "2" per i Pod che chiamano
+#     soprattutto fuori (con ndots:1, misurato, `web.lab-dns` si risolve
+#     ancora: il resolver prova prima `web.lab-dns.` assoluto, fallisce,
+#     poi passa alla search list. Una domanda sprecata per i nomi interni)
+#   • NodeLocal DNSCache, cache sul nodo, nei cluster grandi
+#
+# TRAPPOLE DEGLI STRUMENTI
+#   • nslookup di busybox non è affidabile con i nomi corti: misurato,
+#     `nslookup web` stampa "can't find web.nexxt: NXDOMAIN" (il fallimento
+#     sull'ultima voce della search) mentre wget nello stesso container
+#     risolve. Si prova con il nome completo, o con dig +search
+#   • dig senza +search ignora la search list; il resolver dell'app (glibc,
+#     musl) la usa con regole sue. Si misura con il programma vero
+#   • il DNS risponde anche per un Service SENZA Pod: il nome c'è, la
+#     connessione no. "Risolve" non vuol dire "funziona". Misurato: rifiuto
+#     immediato (curl exit 7), perché kube-proxy mette una regola REJECT
+#     per i Service senza endpoint; non un timeout
+#   • Endpoints è deprecato dalla 1.33 (warning nel lab): si guardano le
+#     EndpointSlice (label kubernetes.io/service-name)
+#   • un Pod con hostNetwork: true usa il DNS del nodo e non trova i
+#     Service, a meno di dnsPolicy: ClusterFirstWithHostNet
+#   • nel lab il Corefile ha il plugin `log`: ogni domanda compare anche in
+#     `kubectl -n kube-system logs deploy/coredns`
+#   • nel lab CoreDNS ha UNA replica: se cade, cade la risoluzione di tutto
+#     il cluster. In produzione almeno 2, con anti-affinity e PDB
+#
+# dnsPolicy
+#   ClusterFirst (default)     CoreDNS, poi i nomi esterni inoltrati
+#   ClusterFirstWithHostNet    come sopra, per Pod con hostNetwork
+#   Default                    il resolv.conf del NODO (nome ingannevole)
+#   None                       solo quello che metti in dnsConfig
+#
+# LAB  (lo script guidato è ~/kubernetesprj/kubernetes/19-dns-service-discovery.sh)
+#   kubectl apply -f 19-dns-service-discovery.yaml
+#   kubectl -n lab-dns exec rete -- cat /etc/resolv.conf
+#   kubectl -n lab-dns exec rete -- dig +search +short web
+#   kubectl -n lab-dns exec rete -- sh -c 'tcpdump -nni eth0 -c 12 udp port 53 & sleep 1; dig +search example.com >/dev/null; wait'
+#   kubectl -n lab-dns exec rete -- dig +short SRV _http._tcp.web.lab-dns.svc.cluster.local
+#   kubectl -n lab-dns get endpointslices -l kubernetes.io/service-name=web
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-dns
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: lab-dns
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: web }
+  template:
+    metadata:
+      labels: { app: web }
+    spec:
+      containers:
+        - name: app
+          image: traefik/whoami:v1.12
+          ports:
+            - { name: http, containerPort: 80 }
+          resources:
+            requests: { cpu: 5m, memory: 16Mi }
+            limits: { memory: 32Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: lab-dns
+spec:
+  selector: { app: web }
+  ports:
+    - { name: http, port: 80, targetPort: http }   # il nome genera il record SRV
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vuoto                    # nessun Pod ha app=nessuno: zero endpoint
+  namespace: lab-dns
+spec:
+  selector: { app: nessuno }
+  ports:
+    - port: 80
+---
+# La cassetta degli attrezzi: dig, tcpdump, curl (immagine netshoot).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rete
+  namespace: lab-dns
+spec:
+  containers:
+    - name: c
+      image: nicolaka/netshoot:v0.13
+      command: ["sleep", "infinity"]
+      resources:
+        requests: { cpu: 5m, memory: 32Mi }
+        limits: { memory: 128Mi }
+---
+# Stessa cassetta, ma con ndots abbassato a 1.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rete-ndots1
+  namespace: lab-dns
+spec:
+  dnsConfig:
+    options:
+      - { name: ndots, value: "1" }
+  containers:
+    - name: c
+      image: nicolaka/netshoot:v0.13
+      command: ["sleep", "infinity"]
+      resources:
+        requests: { cpu: 5m, memory: 32Mi }
+        limits: { memory: 128Mi }
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Come trova un Pod il Service "api" di un altro namespace?
+# R: Con `api.<namespace>`: il resolv.conf ha nella search list
+#    svc.cluster.local, che completa il nome. CoreDNS risponde con il
+#    ClusterIP, kube-proxy instrada verso un Pod delle EndpointSlice.
+#
+# D: Che cos'è ndots:5 e perché rallenta le chiamate esterne?
+# R: Sotto i 5 punti il nome viene provato prima con ogni search domain:
+#    `api.esterna.com` genera 4-5 NXDOMAIN (×2 con AAAA) prima di quella
+#    buona. Si usa il punto finale, o si abbassa ndots per quei Pod.
+#
+# D: nslookup dice NXDOMAIN ma l'app si collega. Chi ha ragione?
+# R: L'app. Alcuni strumenti (nslookup di busybox, dig senza +search) non
+#    usano la search list come il resolver dell'app. Si prova con il nome
+#    completo o con il programma vero.
+#
+# D: Il nome del Service risolve ma la connessione va in timeout.
+# R: Il DNS registra il Service anche senza backend. Si guardano le
+#    EndpointSlice: vuote = selector che non combacia o Pod non Ready.
+#    Poi le NetworkPolicy.
+#
+# D: Perché il ping al ClusterIP non risponde?
+# R: Il ClusterIP è virtuale: esiste solo nelle regole di kube-proxy per le
+#    porte del Service. ICMP non è tradotto.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • resolv.conf: nameserver = kube-dns, search = <ns>.svc, svc, cluster.local (+ host)
+# • nome corto nello stesso ns, `svc.ns` fuori, punto finale = assoluto
+# • ndots:5: example.com = 5 domande (una esce verso la rete di casa)
+# • risolve ≠ funziona: EndpointSlice vuote = nessun backend
+# • strumenti diversi, search list diverse: si misura con il resolver dell'app
+# ══════════════════════════════════════════════════════════════════════════

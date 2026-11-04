@@ -1,0 +1,181 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 06. SCHEDULING E AUTOSCALING: DOVE GIRANO I POD E QUANTI
+# Versione: Kubernetes 1.34–1.35 (il lab minikube gira la 1.34.0) · autoscaling/v2 · metrics-server
+# Livello: 2 — Stato e disponibilità
+# ═══════════════════════════════════════════════════════════════════════════
+# DOVE: lo scheduler filtra i nodi e poi dà un punteggio. Gli strumenti,
+# dal più rigido al più morbido:
+#   nodeSelector                   etichetta del nodo obbligatoria
+#   nodeAffinity required/preferred  espressioni (In, NotIn, Exists…)
+#   taints + tolerations           il NODO respinge chi non tollera:
+#                                  nodi GPU, nodi dedicati, control plane
+#   podAntiAffinity                non accanto a un altro Pod (per label)
+#   topologySpreadConstraints      distribuzione uniforme su zone/nodi,
+#                                  con maxSkew: la scelta moderna per l'HA
+#   PriorityClass                  chi viene prima; se manca spazio, i
+#                                  Pod a priorità bassa vengono espulsi
+#
+# QUANTI: tre autoscaler, tre domande diverse
+#   HPA  quante REPLICHE (CPU, memoria, metriche custom/esterne)
+#   VPA  quante RISORSE per replica (requests); non mischiarlo con un HPA
+#        sulla stessa metrica CPU
+#   Cluster Autoscaler / Karpenter  quanti NODI: aggiunge nodi quando ci
+#        sono Pod Pending per risorse, li toglie quando sono sottoutilizzati
+#   KEDA  HPA guidato da eventi (lunghezza di una coda, lag Kafka, cron),
+#        anche fino a zero repliche
+#
+# L'HPA calcola: desiderate = ceil(attuali × valoreAttuale / target)
+#   la percentuale CPU è riferita alle REQUESTS: senza requests → <unknown>
+#
+# LAB (minikube con l'addon metrics-server; 2 nodi)
+#   kubectl apply -f 06-scheduling-autoscaling.yaml
+#   kubectl -n lab get pod -l app=api -o wide          # distribuiti sui nodi
+#   kubectl -n lab get hpa api -w                      # TARGETS: x%/60%
+#   kubectl -n lab run carico --rm -it --image=busybox:1.37 --labels=ruolo=client -- \
+#       sh -c 'while true; do wget -q -O- http://api/ >/dev/null; done'
+#   (Ctrl+C ferma il carico; con --rm il Pod sparisce da solo)
+#   kubectl -n lab describe hpa api                    # eventi di scala
+#   kubectl top pod -n lab
+#   kubectl taint nodes lab-m02 dedicato=batch:NoSchedule   # poi rimuovilo con "-"
+
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: lab-critico
+value: 100000
+preemptionPolicy: PreemptLowerPriority
+globalDefault: false
+description: "Servizi che devono restare su anche a cluster pieno"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: lab
+spec:
+  selector: { app: api }
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-allow-client
+  namespace: lab
+spec:
+  podSelector:
+    matchLabels: { app: api }
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { ruolo: client }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: lab
+spec:
+  # niente "replicas": con un HPA il numero lo decide lui; se lo lasci,
+  # ogni `kubectl apply` lo riporta al valore del file (flapping)
+  selector:
+    matchLabels: { app: api }
+  template:
+    metadata:
+      labels: { app: api }
+    spec:
+      priorityClassName: lab-critico
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname    # in cloud: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway      # DoNotSchedule = vincolo rigido
+          labelSelector:
+            matchLabels: { app: api }
+      tolerations:
+        # tollera i nodi "dedicato=batch" ma non li richiede: per FORZARE
+        # un nodo servono toleration + nodeAffinity insieme
+        - key: dedicato
+          operator: Equal
+          value: batch
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/os
+                    operator: In
+                    values: [linux]
+      containers:
+        - name: api
+          image: traefik/whoami:v1.12
+          args: ["--port", "8080"]
+          ports:
+            - containerPort: 8080
+          resources:
+            requests: { cpu: 20m, memory: 16Mi }    # base del calcolo HPA
+            limits: { memory: 32Mi }
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+  namespace: lab
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0        # sali subito
+      policies:
+        - { type: Percent, value: 100, periodSeconds: 15 }   # al più raddoppia
+    scaleDown:
+      stabilizationWindowSeconds: 120      # scendi solo se il calo dura 2 min
+      policies:
+        - { type: Pods, value: 1, periodSeconds: 60 }        # un Pod al minuto
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Un Pod è Pending. Cause possibili?
+# R: `kubectl describe pod` → eventi FailedScheduling: "Insufficient cpu"
+#    (requests troppo alte o cluster pieno: lì entra l'autoscaler dei
+#    nodi), "didn't tolerate taint", "didn't match node affinity",
+#    "unbound PersistentVolumeClaim", vincolo di spread DoNotSchedule.
+#
+# D: L'HPA mostra <unknown>/60%.
+# R: metrics-server assente o non pronto, oppure il container non ha
+#    requests di CPU (la percentuale non ha un denominatore).
+#
+# D: Requests e limits: come le dimensioni?
+# R: Dai dati, non a occhio: p95 dell'uso reale (Prometheus, VPA in modo
+#    "Off" come raccomandatore) per le requests, margine per i picchi.
+#    Requests troppo basse = nodi sovraffollati e sfratti; troppo alte =
+#    cluster pagato e vuoto.
+#
+# D: topologySpreadConstraints o podAntiAffinity?
+# R: L'anti-affinity dice "non insieme" (sì/no), non scala bene oltre
+#    una replica per nodo. Lo spread dice "distribuiti con skew massimo
+#    N": funziona con più repliche che nodi ed è più leggero da calcolare.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Dove: nodeSelector/affinity attraggono, taint respingono, spread distribuisce
+# • PriorityClass decide chi resta quando manca spazio
+# • HPA (repliche), VPA (risorse), Cluster Autoscaler/Karpenter (nodi), KEDA (eventi)
+# • HPA in % delle requests; behavior per evitare oscillazioni
+# • Con un HPA, niente "replicas" nel manifest
+# ══════════════════════════════════════════════════════════════════════════

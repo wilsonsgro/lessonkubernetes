@@ -1,0 +1,4 @@
+lavoro/
+README.md.prima-argocd
+*.tfstate*
+.terraform/

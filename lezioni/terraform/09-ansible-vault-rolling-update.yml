@@ -1,0 +1,147 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 09. ANSIBLE: VAULT, ROLLING UPDATE SENZA DOWNTIME E PRESTAZIONI
+# Versione: ansible-core 2.21
+# Livello: 5 — Automazione su scala
+# ═══════════════════════════════════════════════════════════════════════════
+# Due problemi da produzione:
+#   1. SEGRETI nel repo: password di DB, token. Ansible Vault cifra file
+#      interi o singole stringhe (AES256); in git va solo il testo cifrato.
+#   2. AGGIORNARE N server senza fermare il servizio: a lotti (serial), un
+#      lotto alla volta fuori dal load balancer, aggiornato, verificato,
+#      rimesso dentro. Se troppi falliscono ci si ferma (max_fail_percentage).
+#
+# VAULT
+#   ansible-vault encrypt_string 'S3greta!' --name db_password
+#     → incolla il blocco !vault qui sotto (o in group_vars/all/vault.yml)
+#   ansible-vault create/edit/view/rekey group_vars/all/vault.yml
+#   --ask-vault-pass  oppure  --vault-password-file ~/.vault_pass (chmod 600)
+#   --vault-id dev@prompt --vault-id prod@~/.vault_prod   (password per ambiente)
+#   Convenzione: vault_db_password nel file cifrato, db_password: "{{ vault_db_password }}"
+#   in chiaro accanto → con grep trovi DOVE si usa una variabile senza decifrare.
+#   In CI la password del vault arriva da una variabile protetta o da un
+#   secret manager; con HashiCorp Vault esiste il lookup
+#   community.hashi_vault.hashi_vault (segreti letti a runtime, non in git).
+#
+# LAB (container della 06, nginx della 07 sulla porta 80; db1 fa da "load balancer" finto)
+#   echo 'lab-vault' > ~/.vault_pass && chmod 600 ~/.vault_pass
+#   (il blocco db_password qui sotto è già cifrato con questa password: per
+#    rifarlo, ansible-vault encrypt_string --vault-password-file ~/.vault_pass 'S3greta!' --name db_password)
+#   ansible-playbook 09-ansible-vault-rolling-update.yml --vault-password-file ~/.vault_pass
+#   ansible-playbook 09-ansible-vault-rolling-update.yml --vault-password-file ~/.vault_pass -e versione=2.0 -e rompi=web2
+#     ↑ web1 passa alla 2.0; web2 fallisce la verifica e RESTA FUORI dal bilanciatore
+#       (post_tasks non gira): con più host, i lotti successivi non partirebbero
+#   docker exec db1 cat /etc/lb/backends     # chi è dentro il bilanciatore
+
+- name: Rolling update dei server web
+  hosts: web
+  become: true
+  serial: 1                       # un host per lotto; anche "30%" o [1, 5, "50%"]
+  max_fail_percentage: 0          # al primo lotto fallito, stop
+  order: sorted
+  vars:
+    versione: "1.0"
+    rompi: ""
+    lb_host: db1
+    # Generato con: ansible-vault encrypt_string --vault-password-file ~/.vault_pass 'S3greta!' --name db_password
+    # (password del vault del lab: lab-vault)
+    db_password: !vault |
+              $ANSIBLE_VAULT;1.1;AES256
+              63326330633136363237343031313739396432303561393831386161323233613761663438633030
+              3461346631336331326433613738633936633132356164370a353835626333643233613866366239
+              63373336636664353063333339646434393837303132326130613937613965616631653435313638
+              3864626336623931310a393366663965653330373435316132363831343332633833366464616634
+              6336
+
+  pre_tasks:
+    - name: Prepara il registro del bilanciatore (una volta sola)
+      ansible.builtin.lineinfile:
+        path: /etc/lb/backends
+        line: "{{ item }}"
+        create: true
+        mode: "0644"
+      loop: "{{ ansible_play_hosts_all }}"
+      delegate_to: "{{ lb_host }}"
+      run_once: true             # una volta per play, non per host
+
+    - name: Togli l'host dal bilanciatore (drain)
+      ansible.builtin.lineinfile:
+        path: /etc/lb/backends
+        line: "{{ inventory_hostname }}"
+        state: absent
+      delegate_to: "{{ lb_host }}"   # il task gira SUL bilanciatore
+      # con HAProxy vero: community.general.haproxy state=drained
+      # (usa il socket runtime, corso HAProxy & Traefik lezione 03)
+
+  tasks:
+    - name: Pubblica la nuova versione
+      ansible.builtin.copy:
+        content: |
+          versione {{ versione }} su {{ inventory_hostname }}
+        dest: /var/www/html/versione.txt
+        mode: "0644"
+
+    - name: Configura la connessione al DB (segreto dal vault)
+      ansible.builtin.copy:
+        content: "DB_PASSWORD={{ db_password }}\n"
+        dest: /etc/app.env
+        mode: "0600"
+      no_log: true               # senza, il valore finisce nell'output con -v e nei log di AWX
+
+    - name: Simula un deploy rotto su un host scelto
+      ansible.builtin.copy:
+        content: "rotto\n"
+        dest: /var/www/html/versione.txt
+        mode: "0644"
+      when: inventory_hostname == rompi
+
+    - name: Verifica prima di rimettere in servizio
+      ansible.builtin.uri:
+        url: http://localhost/versione.txt
+        return_content: true
+      register: risposta
+      until: versione in risposta.content
+      retries: 3
+      delay: 2
+
+  post_tasks:
+    - name: Rimetti l'host nel bilanciatore
+      ansible.builtin.lineinfile:
+        path: /etc/lb/backends
+        line: "{{ inventory_hostname }}"
+      delegate_to: "{{ lb_host }}"
+
+# ── PRESTAZIONI SU CENTINAIA DI HOST ────────────────────────────────────────
+#   forks = 50                      host in parallelo
+#   pipelining = True               un solo SSH per modulo, niente file temporanei
+#   ControlPersist (default 60s)    riusa la connessione SSH
+#   gather_facts: false / gather_subset: [min] / fact caching
+#   strategy: free                  ogni host va avanti da solo (niente attese)
+#   async + poll: 0                 task lunghi in background, poi async_status
+#   mitogen (plugin esterno)        storicamente 2-7× più veloce
+#   Ridurre i task: una lista a apt invece di un loop di apt.
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Come fai un rolling update con Ansible senza downtime?
+# R: serial a lotti, pre_tasks che tolgono l'host dal LB con delegate_to,
+#    aggiornamento, verifica (uri + until), post_tasks che lo rimettono;
+#    max_fail_percentage per fermarsi se un lotto fallisce. Il primo lotto
+#    piccolo (serial: [1, "25%"]) fa da canary.
+#
+# D: delegate_to vs run_once vs local_action?
+# R: delegate_to esegue il task su un altro host ma con le variabili
+#    dell'host corrente (utile per LB, DNS, monitoraggio). run_once lo
+#    esegue una volta sola per il play. local_action = delegate_to: localhost.
+#
+# D: Il segreto compare nei log della pipeline.
+# R: no_log: true sui task che lo usano (anche nei loop: l'item viene
+#    stampato), niente debug di variabili sensibili, e in AWX le
+#    credenziali come tipo dedicato, non come extra vars.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Vault: encrypt_string per singoli valori, vault-id per ambiente
+# • Convenzione vault_* cifrato + alias in chiaro; no_log sui task sensibili
+# • Rolling: serial + drain con delegate_to + verifica + max_fail_percentage
+# • run_once, until/retries, post_tasks per rimettere in servizio
+# • Scala: forks, pipelining, fact caching, strategy free, async
+# ══════════════════════════════════════════════════════════════════════════

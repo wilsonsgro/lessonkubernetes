@@ -1,0 +1,594 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 14. LOGGING E ALERTING: LOKI, ALLOY, LOGQL, ALERTMANAGER, SLO BURN RATE
+# Versione: Loki 3.7 · Alloy 1.21 · Prometheus 3.15 · Alertmanager 0.34
+# Livello: 5 — Produzione
+# ═══════════════════════════════════════════════════════════════════════════
+# La lezione 13 monta lo stack con l'operator. Qui i pezzi sono a mano,
+# per vedere cosa fa ognuno e cosa si chiede al colloquio:
+#
+#   pod ──stdout──▶ Alloy ──push──▶ Loki ◀── LogQL (Grafana, ruler)
+#   pod ──/metrics◀── Prometheus ──regole──▶ Alertmanager ──▶ pager / ticket
+#                                    Loki ruler ──┘
+#
+# LOKI indicizza SOLO le label (namespace, app, pod, level), non il testo.
+# Il contenuto si filtra a query time. Quindi:
+#   • label = poche e a bassa cardinalità. trace_id, user_id, path come
+#     label = milioni di stream, ingester senza memoria. Restano nel testo
+#     e si estraggono con | json al momento della query
+#   • una query deve partire da un selettore stretto {app="x"}: è quello
+#     che decide quanti chunk leggere
+#
+# LOGQL
+#   {app="pagamenti"} |= "ERROR"                     filtro di riga (veloce)
+#   {app="pagamenti"} | json | durata_ms > 800       parser + filtro su campo
+#   {app="pagamenti"} | json | line_format "{{.trace_id}} {{.msg}}"
+#   sum by (level) (count_over_time({app="pagamenti"} | json | __error__="" [1m]))   metrica
+#     ↑ senza __error__="" UNA riga non JSON (es. troncata in un rollout) fa
+#       fallire tutta la query con JSONParserErr (successo davvero)
+#   topk(3, sum by (msg) (rate({app="pagamenti"} | json | level="ERROR" [5m])))
+#
+# ALLOY (successore di Promtail e Grafana Agent): pipeline di componenti.
+# Qui legge i log dall'API di Kubernetes (loki.source.kubernetes), senza
+# montare /var/log del nodo; in produzione si usa un DaemonSet con
+# loki.source.file su /var/log/pods, che non pesa sull'API server.
+#
+# ALERTMANAGER: Prometheus valuta, Alertmanager decide CHI e QUANDO
+#   route          albero: il primo figlio che fa match vince (continue
+#                  per proseguire). group_by riunisce gli alert in UNA notifica
+#   group_wait     quanto aspettare altri alert dello stesso gruppo (10-30s)
+#   group_interval ogni quanto mandare le novità di un gruppo già notificato
+#   repeat_interval ogni quanto ripetere un alert ancora attivo (ore)
+#   inhibit_rules  se c'è il page per un servizio, i ticket dello stesso
+#                  servizio tacciono: una causa, una sveglia
+#   silences       a tempo, da UI/amtool, per manutenzioni
+#
+# SLO E BURN RATE (Google SRE workbook)
+#   SLO 99.9% su 30 giorni → budget d'errore 0.1%. Burn rate = errori
+#   osservati / 0.001. A burn rate 1 il budget finisce in 30 giorni; a 14.4
+#   il 2% del budget se ne va in un'ora.
+#   Alert multiwindow: finestra lunga (1h) per la significatività, finestra
+#   corta (5m) per smettere di suonare appena il problema finisce
+#     page    burn > 14.4 su 1h E su 5m     (2% del budget in 1 ora)
+#     ticket  burn > 6    su 6h E su 30m    (5% del budget in 6 ore)
+#   Allerta sui SINTOMI degli utenti, non sulle cause (CPU 90%).
+#
+# LAB SU UBUNTU (minikube "lab"; mai sul contesto di produzione)
+#   test "$(kubectl config current-context)" = lab || exit 1
+#   kubectl apply -f 14-logging-alerting.yaml
+#   kubectl -n logalert rollout status deploy/loki deploy/alloy deploy/prometheus
+#   Domande a Loki (curl nel cluster; --data-urlencode per le { } e i [ ])
+#     Q() { kubectl -n logalert run q$RANDOM --rm -i --restart=Never --image=curlimages/curl:8.23.0 \
+#           -- curl -s -G "http://loki:3100/loki/api/v1/$1" --data-urlencode "query=$2"; }
+#     Q labels ''   → app, container, instance, job, level, namespace, pod,
+#                     service_name (l'ultima la aggiunge Loki 3). Niente trace_id
+#   Errori al 5% (50 volte il budget):
+#     kubectl -n logalert set env deploy/pagamenti ERRORI=0.05
+#     Q query_range '{app="pagamenti"} | json | level="ERROR" | line_format "{{.trace_id}} {{.msg}}"'
+#       → 374659034d185343 gateway carte non risponde
+#     Q query 'sum by (level) (count_over_time({app="pagamenti"} | json | __error__="" [1m]))'
+#       → ERROR 31, INFO 563
+#   Dopo ~2 minuti, in Alertmanager (api/v2/alerts):
+#     BudgetErroriVeloce page   active       → il ricevitore stampa "/pager firing"
+#     BudgetErroriLento  ticket suppressed   (inibito dal page)
+#     ErroriNeiLog       ticket suppressed   (dal ruler di Loki, inibito anche lui)
+#   Instradamento senza alert veri:
+#     kubectl -n logalert exec deploy/alertmanager -- amtool config routes test \
+#       --config.file=/etc/alertmanager/alertmanager.yml severity=page   → pager
+#   Silence: amtool --alertmanager.url=http://localhost:9093 silence add
+#     alertname=BudgetErroriVeloce --duration=15m --comment=manutenzione
+#     → il page diventa suppressed, e i ticket RESTANO inibiti: un alert
+#       silenziato continua a inibire
+#   Prova del rosso, cardinalità: in Alloy aggiungi trace_id a stage.json e
+#     stage.labels → ogni riga è uno stream nuovo, Loki risponde 429
+#     "maximum active stream limit exceeded" e rifiuta il batch INTERO:
+#     nessuna riga arriva più, nemmeno quelle normali (serie negli ultimi
+#     30 s: 0). Tolta la label i log tornano
+#   Fine degli errori (ERRORI=0): il page si risolve dopo ~3,5 minuti (la
+#   finestra da 5m si svuota) e subito dopo il ticket BudgetErroriLento
+#   diventa active e arriva a /ticket: tolta l'inibizione resta il debito
+#   della finestra lunga, che è giusto seguire di giorno
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logalert
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pagamenti
+  namespace: logalert
+data:
+  app.py: |
+    import json
+    import os
+    import random
+    import secrets
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    ERRORI = float(os.environ.get("ERRORI", "0"))
+    conteggi = {"200": 0, "500": 0}
+
+
+    def traffico():
+        while True:
+            errore = random.random() < ERRORI
+            codice = "500" if errore else "200"
+            conteggi[codice] += 1
+            print(json.dumps({
+                "level": "ERROR" if errore else "INFO",
+                "msg": "gateway carte non risponde" if errore else "pagamento ok",
+                "status": int(codice),
+                "durata_ms": random.randint(900, 1500) if errore else random.randint(20, 200),
+                "trace_id": secrets.token_hex(8),
+            }), flush=True)
+            time.sleep(0.1)
+
+
+    class Metriche(BaseHTTPRequestHandler):
+        def do_GET(self):
+            righe = ["# TYPE http_requests_total counter"]
+            righe += [f'http_requests_total{{code="{c}"}} {n}' for c, n in conteggi.items()]
+            dati = ("\n".join(righe) + "\n").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.end_headers()
+            self.wfile.write(dati)
+
+        def log_message(self, *args):
+            pass
+
+
+    threading.Thread(target=traffico, daemon=True).start()
+    ThreadingHTTPServer(("", 8080), Metriche).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pagamenti
+  namespace: logalert
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: pagamenti}
+  template:
+    metadata:
+      labels: {app: pagamenti}
+    spec:
+      containers:
+        - name: app
+          image: python:3.13-alpine
+          command: [python, /app/app.py]
+          env: [{name: ERRORI, value: "0"}]
+          ports: [{containerPort: 8080}]
+          volumeMounts: [{name: app, mountPath: /app}]
+      volumes: [{name: app, configMap: {name: pagamenti}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pagamenti
+  namespace: logalert
+spec:
+  selector: {app: pagamenti}
+  ports: [{port: 8080}]
+---
+# ── LOKI: binario unico, filesystem, ruler che manda ad Alertmanager ─────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki
+  namespace: logalert
+data:
+  loki.yaml: |
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+    common:
+      path_prefix: /loki
+      replication_factor: 1
+      ring:
+        kvstore: {store: inmemory}
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+    schema_config:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index: {prefix: index_, period: 24h}
+    limits_config:
+      retention_period: 72h
+    ruler:
+      alertmanager_url: http://alertmanager:9093
+      enable_api: true
+      evaluation_interval: 30s
+      storage:
+        type: local
+        local: {directory: /etc/loki/rules}
+  regole-log.yaml: |
+    groups:
+      - name: log
+        rules:
+          - alert: ErroriNeiLog
+            expr: sum by (app) (count_over_time({namespace="logalert"} | json | level="ERROR" [1m])) > 5
+            for: 1m
+            labels: {severity: ticket, servizio: pagamenti}
+            annotations:
+              summary: "{{ $value }} righe ERROR al minuto in {{ $labels.app }}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: logalert
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: loki}
+  template:
+    metadata:
+      labels: {app: loki}
+    spec:
+      securityContext: {fsGroup: 10001}
+      containers:
+        - name: loki
+          image: grafana/loki:3.7.9
+          args: [-config.file=/etc/loki/loki.yaml, -target=all]
+          ports: [{containerPort: 3100}]
+          volumeMounts:
+            - {name: config, mountPath: /etc/loki/loki.yaml, subPath: loki.yaml}
+            - {name: config, mountPath: /etc/loki/rules/fake/regole-log.yaml, subPath: regole-log.yaml}
+            - {name: dati, mountPath: /loki}
+      volumes:
+        - {name: config, configMap: {name: loki}}
+        - {name: dati, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: logalert
+spec:
+  selector: {app: loki}
+  ports: [{port: 3100}]
+---
+# ── ALLOY: legge i log dei pod dall'API e li manda a Loki ────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alloy
+  namespace: logalert
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: alloy
+  namespace: logalert
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: alloy
+  namespace: logalert
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: alloy}
+subjects: [{kind: ServiceAccount, name: alloy, namespace: logalert}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy
+  namespace: logalert
+data:
+  config.alloy: |
+    discovery.kubernetes "pod" {
+      role = "pod"
+      namespaces { names = ["logalert"] }
+    }
+
+    discovery.relabel "pod" {
+      targets = discovery.kubernetes.pod.targets
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app"]
+        regex         = "pagamenti"
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        target_label  = "namespace"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app"]
+        target_label  = "app"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+    }
+
+    loki.source.kubernetes "pod" {
+      targets    = discovery.relabel.pod.output
+      forward_to = [loki.process.json.receiver]
+    }
+
+    loki.process "json" {
+      stage.json {
+        expressions = { level = "level" }
+      }
+      stage.labels {
+        values = { level = "" }
+      }
+      forward_to = [loki.write.loki.receiver]
+    }
+
+    loki.write "loki" {
+      endpoint {
+        url = "http://loki:3100/loki/api/v1/push"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alloy
+  namespace: logalert
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: alloy}
+  template:
+    metadata:
+      labels: {app: alloy}
+    spec:
+      serviceAccountName: alloy
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.21.3
+          args: [run, /etc/alloy/config.alloy, --storage.path=/tmp/alloy]
+          volumeMounts: [{name: config, mountPath: /etc/alloy}]
+      volumes: [{name: config, configMap: {name: alloy}}]
+---
+# ── PROMETHEUS: SLI, burn rate, alert ────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus
+  namespace: logalert
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 5s
+      evaluation_interval: 5s
+    alerting:
+      alertmanagers:
+        - static_configs: [{targets: [alertmanager:9093]}]
+    rule_files: [/etc/prometheus/slo.yml]
+    scrape_configs:
+      - job_name: pagamenti
+        static_configs:
+          - targets: [pagamenti:8080]
+            labels: {servizio: pagamenti}
+  slo.yml: |
+    groups:
+      - name: slo-pagamenti
+        rules:
+          - record: servizio:errori:ratio_rate5m
+            expr: sum by (servizio) (rate(http_requests_total{code=~"5.."}[5m])) / sum by (servizio) (rate(http_requests_total[5m]))
+          - record: servizio:errori:ratio_rate30m
+            expr: sum by (servizio) (rate(http_requests_total{code=~"5.."}[30m])) / sum by (servizio) (rate(http_requests_total[30m]))
+          - record: servizio:errori:ratio_rate1h
+            expr: sum by (servizio) (rate(http_requests_total{code=~"5.."}[1h])) / sum by (servizio) (rate(http_requests_total[1h]))
+          - record: servizio:errori:ratio_rate6h
+            expr: sum by (servizio) (rate(http_requests_total{code=~"5.."}[6h])) / sum by (servizio) (rate(http_requests_total[6h]))
+          - alert: BudgetErroriVeloce
+            expr: |
+              servizio:errori:ratio_rate1h > (14.4 * 0.001)
+              and servizio:errori:ratio_rate5m > (14.4 * 0.001)
+            for: 1m
+            labels: {severity: page}
+            annotations:
+              summary: "{{ $labels.servizio }} brucia il budget a {{ $value | humanizePercentage }} di errori"
+              runbook_url: https://wiki.lab/runbook/pagamenti-errori
+          - alert: BudgetErroriLento
+            expr: |
+              servizio:errori:ratio_rate6h > (6 * 0.001)
+              and servizio:errori:ratio_rate30m > (6 * 0.001)
+            for: 1m
+            labels: {severity: ticket}
+            annotations:
+              summary: "{{ $labels.servizio }} consuma il budget più del previsto"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: logalert
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: prometheus}
+  template:
+    metadata:
+      labels: {app: prometheus}
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.15.1
+          args: [--config.file=/etc/prometheus/prometheus.yml]
+          ports: [{containerPort: 9090}]
+          volumeMounts: [{name: config, mountPath: /etc/prometheus}]
+      volumes: [{name: config, configMap: {name: prometheus}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: logalert
+spec:
+  selector: {app: prometheus}
+  ports: [{port: 9090}]
+---
+# ── ALERTMANAGER: chi riceve cosa ────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager
+  namespace: logalert
+data:
+  alertmanager.yml: |
+    route:
+      receiver: ticket
+      group_by: [alertname, servizio]
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 4h
+      routes:
+        - matchers: [severity="page"]
+          receiver: pager
+          group_wait: 0s
+    inhibit_rules:
+      - source_matchers: [severity="page"]
+        target_matchers: [severity="ticket"]
+        equal: [servizio]
+    receivers:
+      - name: pager
+        webhook_configs: [{url: "http://ricevitore:8080/pager", send_resolved: true}]
+      - name: ticket
+        webhook_configs: [{url: "http://ricevitore:8080/ticket", send_resolved: true}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: logalert
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: alertmanager}
+  template:
+    metadata:
+      labels: {app: alertmanager}
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.34.2
+          args: [--config.file=/etc/alertmanager/alertmanager.yml]
+          ports: [{containerPort: 9093}]
+          volumeMounts: [{name: config, mountPath: /etc/alertmanager}]
+      volumes: [{name: config, configMap: {name: alertmanager}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: logalert
+spec:
+  selector: {app: alertmanager}
+  ports: [{port: 9093}]
+---
+# ── RICEVITORE: al posto di PagerDuty/Slack, stampa ciò che arriva ───────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ricevitore
+  namespace: logalert
+data:
+  ricevitore.py: |
+    import json
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+
+    class Ricevitore(BaseHTTPRequestHandler):
+        def do_POST(self):
+            corpo = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            nomi = sorted({a["labels"]["alertname"] for a in corpo["alerts"]})
+            print(f"{self.path} {corpo['status']} {','.join(nomi)}", flush=True)
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+
+    HTTPServer(("", 8080), Ricevitore).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ricevitore
+  namespace: logalert
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ricevitore}
+  template:
+    metadata:
+      labels: {app: ricevitore}
+    spec:
+      containers:
+        - name: ricevitore
+          image: python:3.13-alpine
+          command: [python, /app/ricevitore.py]
+          ports: [{containerPort: 8080}]
+          volumeMounts: [{name: app, mountPath: /app}]
+      volumes: [{name: app, configMap: {name: ricevitore}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ricevitore
+  namespace: logalert
+spec:
+  selector: {app: ricevitore}
+  ports: [{port: 8080}]
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Loki o Elasticsearch?
+# R: Loki indicizza solo le label: costa poco in storage e RAM, le query
+#    sul testo scansionano i chunk (veloci se il selettore è stretto).
+#    Elasticsearch indicizza tutto il testo: ricerca libera rapida e
+#    aggregazioni ricche, ma costa molto di più. Log per il debug → Loki;
+#    analisi full-text, SIEM → Elastic/OpenSearch.
+#
+# D: Arrivano 200 alert alle 3 di notte. Cosa sistemi?
+# R: group_by per servizio/cluster (una notifica, non 200), inhibit_rules
+#    (il servizio giù zittisce i suoi sintomi), alert sui sintomi via SLO
+#    invece che sulle cause, for: per i picchi brevi, severità diverse:
+#    solo il page sveglia, il ticket aspetta la mattina.
+#
+# D: Perché due finestre nel burn rate?
+# R: Solo 1h: dopo che il problema è risolto l'alert resta acceso per un'ora.
+#    Solo 5m: suona per ogni picco. Le due insieme (AND): significativo e
+#    si spegne in pochi minuti quando gli errori finiscono.
+#
+# D: Un alert che non suona mai: come sai che funziona?
+# R: Si prova: promtool test rules con serie sintetiche, amtool config
+#    routes test per l'instradamento, e un alert "Watchdog" sempre acceso
+#    che deve arrivare: se smette di arrivare è la pipeline di alert rotta.
+#
+# D: Log in JSON: perché?
+# R: Campi estraibili (| json) senza regex fragili, livelli come label,
+#    trace_id per saltare dalla riga di log alla traccia.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Loki: label poche e a bassa cardinalità, il resto nel testo (| json)
+# • LogQL: selettore stretto, filtri di riga, parser, query metriche
+# • Alloy: discovery → relabel → source → process → write
+# • Alertmanager: route/group_by, group_wait/interval/repeat, inhibit, silences
+# • SLO: burn rate multiwindow (14.4 su 1h+5m page, 6 su 6h+30m ticket)
+# ══════════════════════════════════════════════════════════════════════════

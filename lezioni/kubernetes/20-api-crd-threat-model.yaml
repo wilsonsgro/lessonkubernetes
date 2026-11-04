@@ -1,0 +1,220 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 20. L'API DI KUBERNETES, I CRD E IL THREAT MODEL (STRIDE)
+# Versione: Kubernetes 1.34–1.35 (il lab minikube gira la 1.34.0)
+# Livello: 3 — Sicurezza e operatività
+# ═══════════════════════════════════════════════════════════════════════════
+# Tutto passa dall'apiserver: kubectl, kubelet, scheduler, controller, Argo
+# CD. Nessun componente parla con un altro direttamente, e solo l'apiserver
+# parla con etcd. Capire l'API vuol dire capire Kubernetes; proteggere
+# l'API vuol dire proteggere il cluster.
+#
+# L'API È REST SU HTTPS
+#   verbo HTTP + percorso = operazione su una risorsa
+#     GET     /api/v1/namespaces/lab/pods          lista (kubectl get)
+#     GET     /api/v1/namespaces/lab/pods/x        un oggetto
+#     POST    /api/v1/namespaces                   crea      → 201 Created
+#     PUT / PATCH …                                aggiorna  → 200
+#     DELETE  /api/v1/namespaces/x                 cancella  → 200 (Terminating)
+#   più ?watch=true per lo stream degli eventi (così lavorano i controller)
+# Codici misurati nel lab: creazione 201, nome già esistente 409, oggetto
+# inesistente 404, gruppo nel percorso sbagliato 404.
+#   401 = non so chi sei (token falso)      403 = so chi sei, non puoi
+#   Senza credenziali l'apiserver del lab risponde 403, non 401: l'utente
+#   anonimo esiste (system:anonymous) ma non ha permessi su /api.
+#
+# GRUPPI E VERSIONI: IL PERCORSO DICE IL GRUPPO
+#   core (gruppo vuoto)  /api/v1/…                    Pod, Service, Secret…
+#   gruppi con nome      /apis/<gruppo>/<versione>/…  apps/v1, batch/v1,
+#                                                     networking.k8s.io/v1…
+#   apiVersion nel YAML = gruppo/versione: `apps/v1`, oppure solo `v1` per il core
+# Maturità: v1alpha1 (spenta di default) → v1beta1 → v1 (GA). Le versioni
+# beta vengono rimosse: extensions/v1beta1 per gli Ingress, policy/v1beta1
+# per le PodSecurityPolicy (rimosse nella 1.25, nel lab non esistono più).
+#   kubectl api-versions                 gruppo/versione serviti
+#   kubectl api-resources --api-group=apps
+#   kubectl explain <kind>               mostra GROUP e VERSION da usare
+# Formati: JSON per noi, Protobuf (prefisso magico "k8s\0") fra componenti.
+#
+# kubectl proxy
+# Apre l'API su 127.0.0.1 senza TLS e firma ogni richiesta con LE TUE
+# credenziali. Comodo per curl; chiunque sulla macchina lo può usare. Mai
+# --address 0.0.0.0.
+# Le risposte portano X-Kubernetes-Pf-*: API Priority and Fairness, il
+# limitatore di concorrenza dell'apiserver.
+#
+# ESTENDERE L'API: CustomResourceDefinition
+# Un CRD aggiunge un tipo nuovo, con il suo percorso REST, validazione
+# (schema OpenAPI) e colonne per `kubectl get`. Da solo è un archivio di
+# dati: il comportamento lo dà un CONTROLLER (operator) che osserva quegli
+# oggetti e riconcilia. Argo CD (lezione 16) e Calico sono fatti così:
+# nel lab ci sono 22 CRD di projectcalico.org e 3 di argoproj.io.
+# Trappole misurate:
+#   • uno shortName già usato perde: `cs` è di componentstatuses, il tuo
+#     CRD non risponde a `kubectl get cs` (warning "could also match…")
+#   • cancellare il CRD cancella TUTTI gli oggetti di quel tipo
+#   • scope Namespaced → percorso con /namespaces/<ns>/; Cluster → senza
+#
+# THREAT MODEL CON STRIDE
+# Prima le minacce, poi le difese. Sei categorie, ognuna con la sua
+# contromisura in Kubernetes e un controllo che puoi fare sul cluster:
+#   S Spoofing        fingersi un altro componente o Pod
+#                     → mTLS fra componenti (CA del cluster), identità
+#                       per ServiceAccount, token solo dove servono
+#                       (automountServiceAccountToken: false), token
+#                       proiettati con scadenza e audience
+#   T Tampering       alterare immagini, manifest, dati
+#                     → registry privato, immagini per digest e firmate
+#                       (cosign + admission), GitOps come unica via di
+#                       modifica, readOnlyRootFilesystem
+#   R Repudiation     "non sono stato io"
+#                     → audit log dell'apiserver (non attivo di default:
+#                       serve una audit policy), log spediti fuori dal
+#                       cluster, utenti personali e non condivisi
+#   I Information     leggere ciò che non si deve
+#     disclosure      → Secret cifrati at-rest (KMS, chiave FUORI dal
+#                       cluster), RBAC stretto su get/list secrets, etcd
+#                       raggiungibile solo dall'apiserver
+#   D Denial of       esaurire il cluster
+#     service         → ResourceQuota e LimitRange (lezione 18), limite di
+#                       PID per Pod (impostazione del kubelet), apiserver
+#                       non esposto su internet, control plane in HA
+#   E Elevation of    da Pod a nodo, da utente a admin
+#     privilege       → Pod Security restricted (lezione 07): non-root,
+#                       allowPrivilegeEscalation: false, drop ALL,
+#                       seccomp RuntimeDefault; RBAC minimo, niente
+#                       cluster-admin ai ServiceAccount
+# Misurato nel lab, un Pod normale contro il Pod `blindato` qui sotto:
+#                  Pod normale              blindato
+#   Seccomp        0 (nessun filtro!)       2 (filtro RuntimeDefault)
+#   CapEff         00000000a80425fb (14)    0000000000000000 (nessuna)
+#   uid            0 (root)                 65534 (nobody)
+#   NoNewPrivs     0                        1
+#   token SA       montato                  assente
+#   touch /x       riesce                   Read-only file system
+# Il default non è sicuro: seccomp è spento finché non lo chiedi (o finché
+# il kubelet non ha --seccomp-default).
+#
+# Fuori dall'API, e quindi fuori da RBAC: chi ha SSH sul nodo (o
+# `minikube ssh`) vede container e Secret montati senza passare
+# dall'apiserver. Accesso ai nodi = accesso al cluster.
+#
+# LAB  (lo script guidato è ~/kubernetesprj/kubernetes/20-api-crd-threat-model.sh)
+#   kubectl proxy --port 9001 &
+#   curl -s localhost:9001/api ; curl -s localhost:9001/apis | head
+#   curl -si -X POST -H 'Content-Type: application/json' \
+#     --data '{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"da-curl"}}' \
+#     localhost:9001/api/v1/namespaces | head -1        # 201 Created
+#   kubectl apply -f 20-api-crd-threat-model.yaml
+#   kubectl -n lab-api get corsi ; kubectl get --raw /apis/lab.esempio.it/v1/namespaces/lab-api/corsi
+#   kubectl -n lab-api exec blindato -- grep -E 'Seccomp|CapEff|NoNewPrivs' /proc/1/status
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-api
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: corsi.lab.esempio.it            # <plurale>.<gruppo>: obbligatorio
+spec:
+  group: lab.esempio.it
+  scope: Namespaced
+  names:
+    plural: corsi
+    singular: corso
+    kind: Corso
+    shortNames: [crs]                   # non `cs`: è già di componentstatuses
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [titolo]
+              properties:
+                titolo: { type: string }
+                ore: { type: integer, minimum: 1 }
+                livello: { type: string, enum: [base, medio, avanzato] }
+      additionalPrinterColumns:
+        - { name: Titolo, type: string, jsonPath: .spec.titolo }
+        - { name: Ore, type: integer, jsonPath: .spec.ore }
+        - { name: Livello, type: string, jsonPath: .spec.livello }
+---
+# Il Pod che soddisfa Pod Security "restricted", con il token tolto.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: blindato
+  namespace: lab-api
+spec:
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: app
+      image: busybox:1.37
+      command: ["sleep", "infinity"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+      resources:
+        requests: { cpu: 5m, memory: 8Mi }
+        limits: { memory: 16Mi }
+---
+# Lo stesso Pod senza alcuna protezione, per confronto.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: normale
+  namespace: lab-api
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+      command: ["sleep", "infinity"]
+      resources:
+        requests: { cpu: 5m, memory: 8Mi }
+        limits: { memory: 16Mi }
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Cosa succede quando lancio `kubectl apply`?
+# R: kubectl trasforma il YAML in JSON e fa GET + PATCH (o POST) via HTTPS
+#    all'apiserver. L'apiserver autentica, autorizza (RBAC), passa per gli
+#    admission controller (mutating, poi validating: qui Pod Security e le
+#    quote), valida lo schema e scrive in etcd. Poi i controller reagiscono.
+#
+# D: 401 o 403?
+# R: 401: credenziali assenti o non valide. 403: identità riconosciuta,
+#    permesso negato. Un utente anonimo può ricevere 403, non 401.
+#
+# D: Che cos'è un operator?
+# R: Un CRD (il tipo nuovo) più un controller che lo riconcilia: osserva gli
+#    oggetti con watch e porta il mondo allo stato dichiarato.
+#
+# D: Come faresti il threat model di un cluster?
+# R: STRIDE sui flussi (utente → apiserver, Pod → Pod, CI → registry →
+#    cluster, nodo → etcd). Per ogni categoria una difesa e un controllo
+#    verificabile: auth can-i, Pod Security, NetworkPolicy, audit log,
+#    cifratura dei Secret, quote.
+#
+# D: Un Pod senza securityContext ha seccomp?
+# R: Di default no (Seccomp: 0 nel lab). Serve seccompProfile
+#    RuntimeDefault nel Pod, Pod Security restricted che lo impone, o
+#    il kubelet con --seccomp-default.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • API REST: verbo + percorso; core in /api/v1, gli altri in /apis/<gruppo>/<ver>
+# • POST 201 · conflitto 409 · non trovato 404 · 401 chi sei? · 403 non puoi
+# • CRD = tipo nuovo + schema; senza controller è solo dati; shortName unico
+# • STRIDE: per ogni minaccia una difesa e un comando che la verifica
+# • il default non protegge: seccomp spento, token montato, root possibile
+# ══════════════════════════════════════════════════════════════════════════

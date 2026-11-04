@@ -1,0 +1,165 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 18. NAMESPACE: QUOTE, LIMITI E COSA NON ISOLANO
+# Versione: Kubernetes 1.34–1.35 (il lab minikube gira la 1.34.0)
+# Livello: 3 — Sicurezza e operatività
+# ═══════════════════════════════════════════════════════════════════════════
+# Un Namespace Kubernetes divide i NOMI e le POLICY di un cluster: dev,
+# test e prod, o un team ciascuno, sullo stesso control plane. Non ha niente
+# a che fare con i namespace del kernel Linux (net, pid, mnt…) che fanno i
+# container: stesso nome, due cose diverse.
+#
+# COSA STA DENTRO E COSA NO
+#   namespaced     Pod, Deployment, Service, ConfigMap, Secret, PVC,
+#                  ServiceAccount, Role, ResourceQuota, NetworkPolicy…
+#   cluster-scoped Node, PersistentVolume, StorageClass, ClusterRole,
+#                  CRD, PriorityClass, e il Namespace stesso
+#   kubectl api-resources --namespaced=false   ← l'elenco del tuo cluster
+# I nomi sono unici solo dentro il Namespace: `api` in dev e `api` in prod
+# convivono, ed è proprio quello che permette gli stessi manifest ovunque.
+#
+# A COSA SERVE DAVVERO: È IL PUNTO DOVE SI ATTACCANO LE REGOLE
+#   ResourceQuota       tetto TOTALE del Namespace: CPU, memoria, numero
+#                       di Pod, Service, PVC, storage…
+#   LimitRange          regole PER CONTAINER/POD: default di requests e
+#                       limits, minimi e massimi
+#   RBAC (Role)         chi può fare cosa, lì dentro (lezione 07)
+#   Pod Security        label sul Namespace: privileged/baseline/restricted
+#   NetworkPolicy       chi parla con chi (lezione 03)
+#
+# LA TRAPPOLA DELLA QUOTA
+# Con una quota su requests.cpu/memory o limits.memory, ogni Pod nuovo
+# DEVE dichiarare quei valori, altrimenti l'apiserver lo rifiuta. Misurato:
+#   pods "senza" is forbidden: failed quota: q: must specify limits.memory…
+# Con un Deployment è peggio: il rifiuto colpisce il ReplicaSet, i Pod non
+# compaiono proprio in `get pods`, e il Deployment resta 0/N in silenzio.
+# Il motivo sta negli eventi (FailedCreate … exceeded quota). Il LimitRange
+# risolve la prima metà: dà i default a chi non li dichiara.
+# La quota conta le RICHIESTE dichiarate, non il consumo reale.
+#
+# COSA UN NAMESPACE NON ISOLA
+#   rete     di default ogni Pod raggiunge ogni Pod e Service di ogni
+#            Namespace (web.altro-ns funziona). Serve una NetworkPolicy, e
+#            un CNI che la applica (nel lab Calico)
+#   nodi     Pod di Namespace diversi condividono nodo e kernel: un
+#            container che evade arriva sugli altri
+#   permessi un ClusterRoleBinding vale in tutti i Namespace
+#   oggetti cluster-scoped: li vedono tutti per natura
+#   nodePort unico nel cluster, non nel Namespace
+# Per isolare tenant ostili non basta: servono cluster separati, o almeno
+# nodi dedicati (taint), PSA restricted, NetworkPolicy deny e RBAC stretti.
+#
+# DETTAGLI UTILI
+#   • ogni Namespace riceve la label kubernetes.io/metadata.name=<nome>:
+#     è quella da usare nei namespaceSelector delle NetworkPolicy
+#   • `kubectl config set-context --current --namespace=X` cambia il
+#     Namespace di default del contesto (e lo si dimentica: occhio)
+#   • cancellare un Namespace cancella TUTTO il suo contenuto, PVC inclusi
+#   • un Namespace bloccato in Terminating ha quasi sempre un finalizer o
+#     un'API aggregata/CRD che non risponde
+#
+# LAB  (lo script guidato è ~/kubernetesprj/kubernetes/18-namespace-quote.sh)
+#   kubectl apply -f 18-namespace-quote.yaml
+#   kubectl describe ns lab-team-a                 # quota e limiti in una vista
+#   kubectl -n lab-team-a run nudo --image=busybox:1.37 -- sleep 3600
+#   kubectl -n lab-team-a get pod nudo -o jsonpath='{.spec.containers[0].resources}'
+#   kubectl -n lab-team-a scale deploy riempi --replicas=6
+#   kubectl -n lab-team-a get events --field-selector reason=FailedCreate
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-team-a
+  labels:
+    team: a
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-team-b
+  labels:
+    team: b
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tetto
+  namespace: lab-team-a
+spec:
+  hard:
+    pods: "4"
+    requests.cpu: 200m
+    requests.memory: 256Mi
+    limits.memory: 512Mi
+    services: "3"
+    persistentvolumeclaims: "2"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-container
+  namespace: lab-team-a
+spec:
+  limits:
+    - type: Container
+      defaultRequest: { cpu: 25m, memory: 32Mi }   # se il Pod non le dichiara
+      default: { memory: 64Mi }                    # limit di default
+      max: { memory: 256Mi }                       # oltre: rifiutato
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: riempi
+  namespace: lab-team-a
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: riempi }
+  template:
+    metadata:
+      labels: { app: riempi }
+    spec:
+      containers:
+        - name: app
+          image: traefik/whoami:v1.12
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { memory: 64Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: riempi
+  namespace: lab-team-a
+spec:
+  selector: { app: riempi }
+  ports:
+    - port: 80
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: I Namespace isolano i team fra loro?
+# R: Isolano i nomi e sono il punto dove si applicano quote, RBAC, Pod
+#    Security e NetworkPolicy. Da soli non isolano rete, nodi né kernel:
+#    senza NetworkPolicy un Pod di un team raggiunge quelli dell'altro.
+#
+# D: Ho messo una ResourceQuota e il Deployment non crea più Pod.
+# R: La quota su requests/limits obbliga ogni Pod a dichiararli, oppure il
+#    tetto è pieno. Il Deployment non dà errore: si guarda negli eventi del
+#    ReplicaSet (FailedCreate). Un LimitRange con i default evita il primo
+#    caso.
+#
+# D: ResourceQuota o LimitRange?
+# R: La quota è il budget del Namespace intero; il LimitRange è la regola
+#    per il singolo container (default, minimi, massimi). Si usano insieme.
+#
+# D: Quali risorse non stanno in un Namespace?
+# R: Node, PersistentVolume, StorageClass, ClusterRole/Binding, CRD,
+#    PriorityClass, Namespace. `kubectl api-resources --namespaced=false`.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Namespace = confine di nomi e punto di aggancio delle policy, non di sicurezza
+# • ResourceQuota = budget totale; LimitRange = default e massimi per container
+# • quota su requests/limits → Pod senza valori rifiutati; Deployment 0/N muto
+# • rete, nodi e permessi cluster-wide attraversano i Namespace
+# • label kubernetes.io/metadata.name per i namespaceSelector
+# ══════════════════════════════════════════════════════════════════════════

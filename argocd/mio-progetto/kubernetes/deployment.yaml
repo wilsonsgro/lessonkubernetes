@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mio-sito
+  labels:
+    app: mio-sito
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mio-sito
+  template:
+    metadata:
+      labels:
+        app: mio-sito
+    spec:
+      containers:
+        - name: sito
+          image: mio-sito:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+          resources:
+            requests:
+              cpu: 20m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

@@ -1,0 +1,77 @@
+# Server git dentro il cluster: Argo CD ha bisogno di un repository da leggere, e così resta tutto in locale.
+# Sta sul nodo principale: il provisioner hostpath di minikube crea la cartella solo lì, e un subPath la vuole già esistente.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitea
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitea
+  namespace: gitea
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  namespace: gitea
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gitea
+  template:
+    metadata:
+      labels:
+        app: gitea
+    spec:
+      nodeSelector:
+        minikube.k8s.io/primary: "true"
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: gitea
+          image: gitea/gitea:1.24-rootless
+          ports:
+            - containerPort: 3000
+          env:
+            - { name: GITEA__database__DB_TYPE, value: sqlite3 }
+            - { name: GITEA__security__INSTALL_LOCK, value: "true" }
+            - { name: GITEA__server__ROOT_URL, value: "http://gitea.gitea.svc.cluster.local:3000/" }
+            - { name: GITEA__server__DISABLE_SSH, value: "true" }
+            - { name: GITEA__service__DISABLE_REGISTRATION, value: "true" }
+            - { name: GITEA__repository__ENABLE_PUSH_CREATE_USER, value: "true" }
+            - { name: GITEA__repository__DEFAULT_PUSH_CREATE_PRIVATE, value: "false" }
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: 3000
+          volumeMounts:
+            - { name: dati, mountPath: /var/lib/gitea, subPath: dati }
+            - { name: dati, mountPath: /etc/gitea, subPath: config }
+      volumes:
+        - name: dati
+          persistentVolumeClaim:
+            claimName: gitea
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+  namespace: gitea
+spec:
+  type: NodePort
+  selector:
+    app: gitea
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30300

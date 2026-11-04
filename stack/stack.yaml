@@ -1,0 +1,311 @@
+# Stack di prova: HAProxy → nginx (2) → PHP-FPM (3) → Redis + MariaDB, nel namespace stack-web.
+# Gira identico su minikube "lab" e su MicroK8s: usa la StorageClass di default del cluster.
+# Guida passo passo: bash stack.sh
+#
+#   client ──► Service haproxy (NodePort 30080, statistiche 30404)
+#                 │  HAProxy scopre i pod nginx dal DNS del Service headless
+#                 ▼
+#              nginx × 2 ──FastCGI :9000──► Service php ──► php-fpm × 3
+#                                                         │
+#                                       ┌─────────────────┴──────────┐
+#                                       ▼                            ▼
+#                                  redis:6379                  mariadb:3306
+#                                  (contatore visite)          (StatefulSet + PVC)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stack-web
+---
+# In un repository vero il Secret NON si scrive qui: Sealed Secrets, SOPS o External Secrets.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mariadb
+  namespace: stack-web
+type: Opaque
+stringData:
+  MARIADB_ROOT_PASSWORD: root-lab-123
+  MARIADB_DATABASE: appdb
+  MARIADB_USER: app
+  MARIADB_PASSWORD: app-lab-123
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+  namespace: stack-web
+spec:
+  clusterIP: None
+  selector: { app: mariadb }
+  ports: [{ name: mysql, port: 3306 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mariadb
+  namespace: stack-web
+spec:
+  serviceName: mariadb
+  replicas: 1
+  selector: { matchLabels: { app: mariadb } }
+  template:
+    metadata: { labels: { app: mariadb } }
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:11.8
+          envFrom: [{ secretRef: { name: mariadb } }]
+          ports: [{ name: mysql, containerPort: 3306 }]
+          readinessProbe:
+            tcpSocket: { port: mysql }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 512Mi }
+          volumeMounts: [{ name: dati, mountPath: /var/lib/mysql }]
+  volumeClaimTemplates:
+    - metadata: { name: dati }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: stack-web
+spec:
+  selector: { app: redis }
+  ports: [{ name: redis, port: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: stack-web
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: redis } }
+  template:
+    metadata: { labels: { app: redis } }
+    spec:
+      containers:
+        - name: redis
+          image: redis:8-alpine
+          args: ["--save", "", "--appendonly", "no"]
+          ports: [{ name: redis, containerPort: 6379 }]
+          readinessProbe:
+            exec: { command: [redis-cli, ping] }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: php-codice
+  namespace: stack-web
+data:
+  index.php: |
+    <?php
+    header('Content-Type: application/json');
+    $r = [
+        'php_pod'   => gethostname(),
+        'nginx_pod' => $_SERVER['NGINX_POD'] ?? '?',
+    ];
+
+    $s = @fsockopen(getenv('DB_HOST'), 3306, $en, $em, 2);
+    if ($s) {
+        $r['mariadb'] = explode("\0", substr(fread($s, 256), 5))[0];
+        fclose($s);
+    } else { $r['mariadb'] = "KO: $em"; }
+
+    $s = @fsockopen(getenv('REDIS_HOST'), 6379, $en, $em, 2);
+    if ($s) {
+        fwrite($s, "INCR visite\r\n");
+        $r['visite'] = (int) trim(fgets($s), ":\r\n");
+        fclose($s);
+    } else { $r['visite'] = "KO: $em"; }
+
+    echo json_encode($r, JSON_PRETTY_PRINT), "\n";
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: php
+  namespace: stack-web
+spec:
+  selector: { app: php }
+  ports: [{ name: fastcgi, port: 9000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php
+  namespace: stack-web
+spec:
+  replicas: 3
+  selector: { matchLabels: { app: php } }
+  template:
+    metadata: { labels: { app: php } }
+    spec:
+      containers:
+        - name: php-fpm
+          image: php:8.4-fpm-alpine
+          ports: [{ name: fastcgi, containerPort: 9000 }]
+          env:
+            - { name: DB_HOST, value: mariadb }
+            - { name: REDIS_HOST, value: redis }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: mariadb, key: MARIADB_PASSWORD } }
+          readinessProbe:
+            tcpSocket: { port: fastcgi }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          volumeMounts:
+            - { name: codice, mountPath: /var/www/html, readOnly: true }
+      volumes:
+        - name: codice
+          configMap: { name: php-codice }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-conf
+  namespace: stack-web
+data:
+  default.conf: |
+    server {
+        listen 80;
+        location = /healthz {
+            access_log off;
+            return 200 "ok\n";
+        }
+        location / {
+            include fastcgi_params;
+            fastcgi_pass php:9000;
+            fastcgi_param SCRIPT_FILENAME /var/www/html/index.php;
+            fastcgi_param NGINX_POD $hostname;
+        }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: stack-web
+spec:
+  clusterIP: None
+  selector: { app: nginx }
+  ports: [{ name: http, port: 80 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: stack-web
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: nginx } }
+  template:
+    metadata: { labels: { app: nginx } }
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.29-alpine
+          ports: [{ name: http, containerPort: 80 }]
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 20m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          volumeMounts:
+            - { name: conf, mountPath: /etc/nginx/conf.d }
+      volumes:
+        - name: conf
+          configMap: { name: nginx-conf }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haproxy-cfg
+  namespace: stack-web
+data:
+  haproxy.cfg: |
+    global
+        log stdout format raw local0
+
+    defaults
+        mode http
+        log global
+        option httplog
+        option dontlognull
+        timeout connect 5s
+        timeout client 30s
+        timeout server 30s
+
+    resolvers k8s
+        parse-resolv-conf
+        hold valid 5s
+
+    frontend web
+        bind :8080
+        http-response set-header X-Servito-Da %[srv_name]
+        default_backend nginx
+
+    backend nginx
+        balance roundrobin
+        option httpchk GET /healthz
+        server-template web 6 nginx.stack-web.svc.cluster.local:80 check resolvers k8s init-addr none
+
+    frontend statistiche
+        bind :8404
+        stats enable
+        stats uri /stats
+        stats refresh 5s
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: haproxy
+  namespace: stack-web
+spec:
+  type: NodePort
+  selector: { app: haproxy }
+  ports:
+    - { name: http, port: 80, targetPort: http, nodePort: 30080 }
+    - { name: stats, port: 8404, targetPort: stats, nodePort: 30404 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: haproxy
+  namespace: stack-web
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: haproxy } }
+  template:
+    metadata:
+      labels: { app: haproxy }
+    spec:
+      containers:
+        - name: haproxy
+          image: haproxy:3.2-alpine
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: stats, containerPort: 8404 }
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          volumeMounts:
+            - { name: cfg, mountPath: /usr/local/etc/haproxy }
+      volumes:
+        - name: cfg
+          configMap: { name: haproxy-cfg }
