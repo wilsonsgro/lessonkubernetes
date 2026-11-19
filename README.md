@@ -88,6 +88,11 @@ kubectl get nodes                  # lab e lab-m02, Ready
 
 ### 3.2 Le lezioni, in ordine
 
+Per ogni lezione c'è una **spiegazione** in `lezioni/kubernetes/NN-nome.md`, accanto al file della
+lezione. Contiene la teoria, gli oggetti campo per campo e la tabella dei passi dello script guidato:
+cosa vedi a ogni passo e quali passi falliscono apposta. Ci sono anche le domande da colloquio e tre
+esercizi. Leggila mentre lo script gira. L'indice con i link è in `kubernetes/README.md`.
+
 | Script | Cosa impari | Dipende da |
 |---|---|---|
 | `02-deployment-rollout-probe.sh` | Deployment, rolling update, rollback, probe, QoS | 01 |
@@ -319,7 +324,9 @@ bash argocd/01-installa-argocd.sh     # poi 02, 03, 04 in ordine; 05 facoltativo
 |---|---|
 | `kubernetes/`, `terraform/`, `stack/`, `argocd/` | gli script da lanciare (`argocd/` contiene anche `gitea.yaml` e il modello `mio-progetto/`) |
 | `lib/passo.sh` | le funzioni comuni (il passo guidato, il controllo del contesto `lab`) |
+| `kubernetes/README.md` | l'indice degli script Kubernetes: cosa impari, da cosa dipende, link alla spiegazione |
 | `lezioni/` | copia dei file delle lezioni (manifest, `.tf`, playbook): **leggili** mentre lo script li applica |
+| `lezioni/kubernetes/*.md` | la spiegazione di ogni lezione Kubernetes (01–20): cosa fa il file, passo per passo lo script guidato, trappole, esercizi |
 | `lavoro/` | la creano gli script: chart Helm, overlay Kustomize, progetti Terraform con il loro state, inventari Ansible. Puoi cancellarla quando vuoi |
 
 Per rifare una lezione Terraform da zero, cancella la sua cartella dopo il destroy,
