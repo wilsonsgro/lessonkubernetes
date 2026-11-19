@@ -243,6 +243,10 @@ Alla fine **apri un terminale nuovo**.
 
 ### 5.2 Le lezioni, in ordine
 
+Accanto a ogni script c'è la sua **spiegazione**: `terraform/NN-nome.md`, anche per la 00. Spiega il file della
+lezione che lo script usa (`lezioni/terraform/`), blocco per blocco, e i passi dello script: cosa vedi e quali
+falliscono apposta. Ci sono anche le trappole, le domande da colloquio e tre esercizi.
+
 | Script | Cosa impari | Dipende da |
 |---|---|---|
 | `01-workflow-provider-state.sh` | init, plan -out, apply, state, drift, -replace, destroy | 00 |
@@ -325,6 +329,7 @@ bash argocd/01-installa-argocd.sh     # poi 02, 03, 04 in ordine; 05 facoltativo
 | `kubernetes/`, `terraform/`, `stack/`, `argocd/` | gli script da lanciare (`argocd/` contiene anche `gitea.yaml` e il modello `mio-progetto/`) |
 | `lib/passo.sh` | le funzioni comuni (il passo guidato, il controllo del contesto `lab`) |
 | `kubernetes/README.md` | l'indice degli script Kubernetes: cosa impari, da cosa dipende, link alla spiegazione |
+| `terraform/*.md` | la spiegazione di ogni script Terraform & Ansible (00–10), accanto allo script |
 | `lezioni/` | copia dei file delle lezioni (manifest, `.tf`, playbook): **leggili** mentre lo script li applica |
 | `lezioni/kubernetes/*.md` | la spiegazione di ogni lezione Kubernetes (01–20): cosa fa il file, passo per passo lo script guidato, trappole, esercizi |
 | `lavoro/` | la creano gli script: chart Helm, overlay Kustomize, progetti Terraform con il loro state, inventari Ansible. Puoi cancellarla quando vuoi |
