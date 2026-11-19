@@ -220,7 +220,7 @@ Il guidato non chiama `prova`: esegue gli stessi comandi uno alla volta (più qu
 | 3 | `find eco -type f \| sort` | i file elencati sopra |
 | 4 | `cat eco/values.yaml` | l'interfaccia pubblica |
 | 5 | `helm lint eco --strict` | errori di struttura e di template **prima** di toccare il cluster. `--strict` tratta anche gli avvisi come errori |
-| 6 | `helm template prova eco --set ingress.enabled=true \| head -40` | i manifest renderizzati **in locale, senza cluster**: è quello che finirebbe nell'apply. Gli oggetti si chiamano `prova-eco`. Attenzione: `head -40` mostra solo ConfigMap, Service e l'inizio del Deployment; l'Ingress acceso con `--set` viene dopo (misurato: `kind: Ingress` alla riga 87). Per vederlo: `helm template prova eco --set ingress.enabled=true --show-only templates/ingress.yaml` |
+| 6 | `helm template prova eco --set ingress.enabled=true \| grep ^kind:; helm template prova eco --set ingress.enabled=true --show-only templates/ingress.yaml` | i manifest renderizzati **in locale, senza cluster**: è quello che finirebbe nell'apply. Gli oggetti si chiamano `prova-eco`. Prima l'elenco dei tipi (ConfigMap, Service, Deployment, Ingress), poi solo l'Ingress acceso con `--set`: `--show-only` rende un template solo. Tutto intero è lungo: l'Ingress comincia alla riga 87 |
 | 7 | `helm template prova eco --set replicaCount=0` | **fallisce apposta**: lo schema JSON rifiuta `replicaCount=0` (minimo 1) **prima** del rendering. Il guidato stampa l'uscita ≠ 0 in rosso: è voluto |
 | 8 | `helm upgrade --install eco eco -n lab-helm --create-namespace --wait --timeout 2m` | installa (la release non c'è ancora), crea il namespace, aspetta che i Pod siano pronti. Stampa le NOTES |
 | 9 | `helm -n lab-helm history eco` | revision 1, `deployed` |

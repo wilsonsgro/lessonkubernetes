@@ -34,4 +34,4 @@ passo "Il plan dice 'has moved to', 0 to destroy: senza moved distruggerebbe e r
 passo "Applico il refactor" \
   'terraform apply -auto-approve && terraform state list'
 passo "Pulizia: destroy, poi via il Postgres dello state" \
-  'terraform destroy -auto-approve; docker rm -f tfstate vecchio-redis'
+  'terraform destroy -auto-approve; docker rm -f -v tfstate vecchio-redis'

@@ -165,20 +165,14 @@ Rileggi le lezioni nell'ordine della tabella del `README.md` sezione 10 e fai gl
 
 ## Errori noti nelle lezioni (non sono colpa tua)
 
-Trovati scrivendo le spiegazioni; i `.md` li segnalano. Se vedi qualcosa di diverso da quello che promette lo script,
-guarda prima qui:
+Trovati scrivendo le spiegazioni e non ancora misurati sul cluster; i `.md` li segnalano. Gli altri (Kubernetes 09
+e 13, Terraform 01, 03, 07 e 09, Argo CD 99) sono stati corretti nelle lezioni. Se vedi qualcosa di diverso da quello
+che promette lo script, guarda prima qui:
 
 | Lezione | Cosa succede |
 |---|---|
 | Kubernetes 05 | (da verificare) con lo storage `standard` di minikube su 2 nodi, una replica spostata su un altro nodo può non ritrovare i dati |
-| Kubernetes 06 | il Deployment `api` parte con 1 replica: al passo 2 puoi vedere un solo Pod |
-| Kubernetes 09 | `helm template … \| head -40` non arriva all'Ingress (sta alla riga 87) |
-| Kubernetes 13 | lo script promette un alert sulla latenza che la regola non contiene |
-| Terraform 01 | se `fmt -check` trova differenze, la riga rossa non compare: guarda il diff |
-| Terraform 03 | la pulizia lascia un volume anonimo di Postgres con lo stato: `docker volume ls -f dangling=true` |
-| Terraform 07 | `-e messaggio=…` non fa scattare l'handler (il `notify` è solo sulla config di nginx) |
-| Terraform 09 | `run_once` con `serial` gira una volta **per lotto**, non per play; `retries: 3` fa 4 tentativi |
-| Argo CD 99 | rilanciata dopo una pulizia, il passo 1 dà errore perché le CRD non ci sono più: è innocuo |
+| Kubernetes 06 | (da verificare) il Deployment `api` parte con 1 replica: al passo 2 puoi vedere un solo Pod |
 
 ## Alla fine di ogni giornata
 

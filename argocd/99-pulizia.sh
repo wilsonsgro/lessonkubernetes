@@ -5,7 +5,7 @@ guardia_lab
 titolo "Argo CD. Pulizia"
 
 passo "Cancello le Application. Senza il finalizer resources-finalizer.argocd.argoproj.io gli oggetti nel cluster RESTANO: li tolgo dopo" \
-  'kubectl -n argocd delete application mio-sito stack-web --ignore-not-found'
+  'if kubectl get crd applications.argoproj.io >/dev/null 2>&1; then kubectl -n argocd delete application mio-sito stack-web --ignore-not-found; else echo "CRD delle Application assente: Argo CD è già stato tolto, niente da cancellare"; fi'
 passo "Il namespace del sito lo ha creato Terraform: lo toglie Terraform" \
   "cd $REPO/terraform && terraform destroy -input=false -auto-approve"
 passo "Lo stack e Gitea" \

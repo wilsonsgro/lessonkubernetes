@@ -13,7 +13,7 @@ passo "Cosa è stato installato" \
   'kubectl -n monitoring get pods'
 passo "Le CRD dell'operatore: ServiceMonitor e PrometheusRule sono oggetti Kubernetes come gli altri" \
   'kubectl get crd | grep monitoring.coreos.com'
-passo "Applico l'app d'esempio nel namespace lab-oss + ServiceMonitor (cosa raccogliere) + PrometheusRule (alert su error rate e latenza)" \
+passo "Applico l'app d'esempio nel namespace lab-oss + ServiceMonitor (cosa raccogliere) + PrometheusRule (alert su error rate, error budget e Pod in restart)" \
   "kubectl apply -f $F"
 passo "Prometheus in background su :9090 (port-forward), per interrogarlo da qui" \
   'kubectl -n monitoring port-forward svc/mon-kube-prometheus-stack-prometheus 9090 >/dev/null 2>&1 & echo $! > /tmp/pf-prom.pid; sleep 5'

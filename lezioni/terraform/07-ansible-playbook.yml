@@ -26,7 +26,7 @@
 #       (in check il pacchetto non è stato installato davvero: provato)
 #   ansible-playbook site.yml                       # prima volta: changed
 #   ansible-playbook site.yml                       # seconda: changed=0
-#   ansible-playbook site.yml -e messaggio="ciao" --diff   # cambia il template → handler
+#   ansible-playbook site.yml -e messaggio="ciao" --diff   # cambia la pagina, ma niente handler: il notify è sulla config
 #   ansible-playbook site.yml --tags config --limit web1
 #   ansible-playbook site.yml --limit web1 -e porta_http=abc   # validate la rifiuta:
 #     "failed to validate", il file sul server resta quello buono, nginx risponde

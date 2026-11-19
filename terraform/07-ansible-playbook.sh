@@ -16,7 +16,7 @@ passo "Prima esecuzione: tutto changed" \
   'ansible-playbook site.yml'
 passo "Seconda esecuzione: changed=0. Un playbook ben scritto è idempotente" \
   'ansible-playbook site.yml'
-passo "Cambio una variabile del template: il file cambia (--diff lo mostra) e scatta l'handler che ricarica nginx" \
+passo "Cambio una variabile della pagina: il file cambia (--diff lo mostra), ma l'handler NON scatta: il notify sta solo sulla config di nginx, che non dipende da messaggio" \
   'ansible-playbook site.yml -e messaggio="ciao" --diff'
 passo "--tags config --limit web1: solo i task con quel tag, solo su quell'host" \
   'ansible-playbook site.yml --tags config --limit web1'

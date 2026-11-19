@@ -34,9 +34,9 @@ vedi il passo 1 nella sezione sotto.
 
 ## Cosa può comparire in rosso
 
-- **Passo 1**, se la pulizia è già stata fatta: il passo 4 del giro prima ha tolto le CRD di Argo, quindi kubectl non
-  conosce più il tipo `application` e fallisce. `--ignore-not-found` copre un oggetto assente, non un tipo che non
-  esiste. È innocuo: non c'è niente da cancellare.
+- **Passo 1** non va più in rosso se la pulizia è già stata fatta: il passo 4 del giro prima ha tolto le CRD di Argo, e
+  `--ignore-not-found` copre un oggetto assente, non un tipo che non esiste. Per questo il passo prima controlla che la
+  CRD `applications.argoproj.io` ci sia, e se manca lo scrive e non cancella niente.
 - **Passo 2**, due casi diversi:
   - `lavoro/argocd` non c'è più (pulizia già fatta, o script 02 mai lanciato): il `cd` fallisce;
   - lo script 02 è stato lanciato ma il 03 no: la cartella `terraform/` c'è, perché il 02 copia tutto il modello. Ma

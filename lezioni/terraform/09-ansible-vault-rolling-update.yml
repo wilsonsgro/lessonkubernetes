@@ -70,7 +70,7 @@
               6336
 
   pre_tasks:
-    - name: Prepara il registro del bilanciatore (una volta sola)
+    - name: Prepara il registro del bilanciatore (una volta per lotto)
       ansible.builtin.lineinfile:
         path: /etc/lb/backends
         line: "{{ item }}"
@@ -78,7 +78,7 @@
         mode: "0644"
       loop: "{{ ansible_play_hosts_all }}"
       delegate_to: "{{ lb_host }}"
-      run_once: true             # una volta per play, non per host
+      run_once: true             # con serial: una volta per lotto, non per host
 
     - name: Togli l'host dal bilanciatore (drain)
       ansible.builtin.lineinfile:
@@ -147,7 +147,8 @@
 # D: delegate_to vs run_once vs local_action?
 # R: delegate_to esegue il task su un altro host ma con le variabili
 #    dell'host corrente (utile per LB, DNS, monitoraggio). run_once lo
-#    esegue una volta sola per il play. local_action = delegate_to: localhost.
+#    esegue una volta per il play (con serial, una per lotto).
+#    local_action = delegate_to: localhost.
 #
 # D: Il segreto compare nei log della pipeline.
 # R: no_log: true sui task che lo usano (anche nei loop: l'item viene

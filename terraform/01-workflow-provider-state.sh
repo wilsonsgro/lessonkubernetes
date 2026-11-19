@@ -9,7 +9,7 @@ passo "Copio il file della lezione come main.tf: rete docker, immagine nginx e c
 passo "terraform init: scarica il provider docker in .terraform/ e scrive .terraform.lock.hcl (versioni bloccate, va in git)" \
   'terraform init'
 passo "terraform fmt e validate: formattazione e controllo di sintassi/tipi, senza toccare niente" \
-  'terraform fmt -check -diff; terraform validate'
+  '(terraform fmt -check -diff; fmt=$?; terraform validate && exit $fmt)'
 passo "terraform plan -out: calcola le differenze fra codice e realtà e le SALVA. L'apply eseguirà esattamente questo piano" \
   'terraform plan -out=piano.tfplan'
 passo "terraform apply del piano salvato: niente domanda di conferma, il piano è già stato approvato" \

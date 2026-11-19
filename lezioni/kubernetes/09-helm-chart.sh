@@ -209,7 +209,8 @@ prova() {
 
   helm lint $CHART --strict
   # template = rendering locale, senza cluster: è ciò che si rivede in PR
-  helm template prova $CHART --set ingress.enabled=true | head -40
+  helm template prova $CHART --set ingress.enabled=true | grep '^kind:'
+  helm template prova $CHART --set ingress.enabled=true --show-only templates/ingress.yaml
   # lo schema blocca i valori sbagliati prima di toccare il cluster
   helm template prova $CHART --set replicaCount=0 && exit 1 || echo "OK: replicaCount=0 rifiutato"
 

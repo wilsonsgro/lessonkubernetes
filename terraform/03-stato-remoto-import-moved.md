@@ -242,7 +242,7 @@ Il file li chiama "di emergenza" perché lasciano traccia solo nei log, non in u
 | 11 | `sed -i -e 's/resource "docker_container" "cache"/resource "docker_container" "sessioni"/' -e '/^# moved {/,/^# }/s/^# //' main.tf && grep -n -A3 '^moved' main.tf` | **refactor**: rinomina la risorsa `cache` → `sessioni` e toglie il `# ` dalle righe del blocco `moved` già scritto. Il grep mostra il blocco ora attivo |
 | 12 | `terraform plan` | il plan dice **"has moved to"**, 0 to destroy. Senza `moved` distruggerebbe e ricreerebbe il container |
 | 13 | `terraform apply -auto-approve && terraform state list` | applica il refactor: nello stato l'indirizzo ora è `docker_container.sessioni` |
-| 14 | `terraform destroy -auto-approve; docker rm -f tfstate vecchio-redis` | pulizia: destroy di tutto ciò che è nello stato, poi via il Postgres dello stato (e `vecchio-redis`, se c'è ancora) |
+| 14 | `terraform destroy -auto-approve; docker rm -f -v tfstate vecchio-redis` | pulizia: destroy di tutto ciò che è nello stato, poi via il Postgres dello stato **con il suo volume** (`-v`) e `vecchio-redis`, se c'è ancora |
 
 A schermo i passi sono numerati `[01]`…`[14]`; la nota non ha numero e compare fra il `[09]` e il `[10]`.
 
@@ -280,10 +280,11 @@ qualcosa che **non** sia `yes` (o premi Ctrl+C): l'apply si annulla e il lock vi
 - **`force-unlock`** solo se sei sicuro che nessuno stia lavorando; prima `state pull` come backup.
 - **Il destroy del passo 14 distrugge anche `vecchio-redis`**: dopo l'import è una risorsa di Terraform come le altre.
   Se volevi solo lasciarla andare, il blocco giusto era `removed` con `destroy = false`.
-- **Lo stato resta in un volume anonimo**: il runner avvia `tfstate` senza `-v`, ma l'immagine `postgres:18-alpine`
+- **Lo stato sta in un volume anonimo**: il runner avvia `tfstate` senza `-v`, ma l'immagine `postgres:18-alpine`
   dichiara il volume `/var/lib/postgresql` (misurato con `docker image inspect`). Docker crea quindi un volume
-  anonimo, e `docker rm -f tfstate` **senza `-v`** lo lascia lì orfano, con dentro lo stato. Per toglierlo:
-  `docker volume ls -f dangling=true` e poi `docker volume rm <id>`. Oppure, alla pulizia, `docker rm -f -v tfstate`.
+  anonimo, con dentro lo stato. Per questo la pulizia usa `docker rm -f -v`: senza `-v` il volume resterebbe orfano
+  (misurato: i volumi `dangling` crescono di uno). Se hai fatto la pulizia a mano senza `-v`:
+  `docker volume ls -f dangling=true` e poi `docker volume rm <id>`.
 
 ## 5. Domande da colloquio (dal file)
 

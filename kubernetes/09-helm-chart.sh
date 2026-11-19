@@ -16,8 +16,8 @@ passo "values.yaml è l'interfaccia pubblica del chart: tutto quello che si può
   'cat eco/values.yaml'
 passo "helm lint --strict: errori di struttura e di template prima di toccare il cluster" \
   'helm lint eco --strict'
-passo "helm template: renderizza i manifest IN LOCALE, senza cluster. È quello che finirebbe nell'apply" \
-  'helm template prova eco --set ingress.enabled=true | head -40'
+passo "helm template: renderizza i manifest IN LOCALE, senza cluster. È quello che finirebbe nell'apply. Prima i tipi di oggetto, poi solo l'Ingress con --show-only" \
+  'helm template prova eco --set ingress.enabled=true | grep ^kind:; helm template prova eco --set ingress.enabled=true --show-only templates/ingress.yaml'
 passo "Lo schema JSON rifiuta replicaCount=0 PRIMA del rendering: errore atteso" \
   'helm template prova eco --set replicaCount=0'
 passo "upgrade --install: installa se non c'è, aggiorna se c'è. --wait aspetta che i Pod siano pronti" \

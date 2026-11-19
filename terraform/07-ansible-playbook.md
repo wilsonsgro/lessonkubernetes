@@ -207,20 +207,19 @@ a fine play, e solo se il task che lo notifica era *changed*.
 | 3 | `ansible-playbook site.yml --check --diff` | **fallisce apposta** su host vergini: in check il pacchetto nginx non viene installato davvero, quindi il task `systemd_service` non trova il servizio. Il file di lezione riporta il messaggio provato: «Could not find the requested service nginx» |
 | 4 | `ansible-playbook site.yml` | prima esecuzione: i task sono **changed** |
 | 5 | `ansible-playbook site.yml` | seconda esecuzione: **changed=0**. Un playbook ben scritto è idempotente |
-| 6 | `ansible-playbook site.yml -e messaggio="ciao" --diff` | `-e` ha la priorità massima: la pagina cambia e `--diff` mostra la riga nuova. Vedi l'incongruenza sull'handler sotto |
+| 6 | `ansible-playbook site.yml -e messaggio="ciao" --diff` | `-e` ha la priorità massima: la pagina cambia e `--diff` mostra la riga nuova. L'handler **non** scatta: vedi sotto |
 | 7 | `ansible-playbook site.yml --tags config --limit web1` | solo i due task con tag `config` (pagina e config di nginx), solo su `web1`. Senza `-e`, `messaggio` torna `"Servito da Ansible"`: la pagina di web1 viene riscritta |
 | 8 | `ansible-playbook site.yml --limit web1 -e porta_http=abc` | **fallisce apposta**: `listen abc` non è valido, `validate` lo rifiuta («failed to validate», dal file di lezione) e il file buono resta sul server |
 | 9 | `docker exec web1 curl -s localhost` | la prova: nginx su web1 **risponde ancora** con la pagina |
 | 10 | `ansible-lint site.yml` | buone pratiche: FQCN dei moduli, nomi dei task, permessi dei file… Se segnala qualcosa lo vedi in rosso con il nome della regola |
 
-### Il passo 6 e l'handler: attenzione
+### Il passo 6 e l'handler
 
-La spiegazione del passo 6 (e l'intestazione del file: «cambia il template → handler») dice che scatta l'handler che
-ricarica nginx. Leggendo il playbook, però, `-e messaggio=…` cambia **solo la pagina** (`index.html`), e il task della
-pagina **non ha `notify`**: il `notify: Ricarica nginx` sta solo sul task della **config** di nginx, il cui contenuto
-non dipende da `messaggio`. Guarda l'output del passo 6: se in fondo non compare `RUNNING HANDLER [Ricarica nginx]`,
-è per questo. Per far partire davvero l'handler serve cambiare la config, per esempio `-e porta_http=8080` (ma poi
-ricordati di rilanciare senza `-e` per tornare alla 80).
+`-e messaggio=…` cambia **solo la pagina** (`index.html`), e il task della pagina **non ha `notify`**: il
+`notify: Ricarica nginx` sta solo sul task della **config** di nginx, il cui contenuto non dipende da `messaggio`. Per
+questo in fondo all'output del passo 6 non compare `RUNNING HANDLER [Ricarica nginx]`: è proprio la regola dell'handler,
+che parte solo se lo notifica un task *changed*. Per vederlo partire serve cambiare la config, per esempio
+`-e porta_http=8080` (poi rilancia senza `-e` per tornare alla 80: la lezione 09 vuole nginx sulla 80).
 
 Nel passo 8, invece, l'handler non parte perché il task notificante **fallisce**: i handler girano a fine play e
 l'host è già uscito.

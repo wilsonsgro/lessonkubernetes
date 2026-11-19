@@ -123,7 +123,7 @@ userebbe `community.general.haproxy state=drained` (socket runtime; corso HAProx
 
 | Task | Cosa fa | Dettagli |
 |---|---|---|
-| Prepara il registro del bilanciatore | `lineinfile` una riga per ogni host di `ansible_play_hosts_all` in `/etc/lb/backends` (`create: true`, `mode: "0644"`) | `delegate_to: "{{ lb_host }}"`: gira **su db1**. `run_once: true`: una volta **per lotto**. Con `serial: 1` i lotti sono di un host, quindi in pratica gira per ogni host (misurato: `run_once` con `serial: 1` su 3 host gira 3 volte). Il commento del file («una volta per play») è sbagliato |
+| Prepara il registro del bilanciatore | `lineinfile` una riga per ogni host di `ansible_play_hosts_all` in `/etc/lb/backends` (`create: true`, `mode: "0644"`) | `delegate_to: "{{ lb_host }}"`: gira **su db1**. `run_once: true`: una volta **per lotto**. Con `serial: 1` i lotti sono di un host, quindi in pratica gira per ogni host (misurato: `run_once` con `serial: 1` su 3 host gira 3 volte). Il nome del task e il commento del file lo dicono: «una volta per lotto» |
 | Togli l'host dal bilanciatore (drain) | `lineinfile` con `line: "{{ inventory_hostname }}"` e `state: absent` | `delegate_to` db1: il task gira **sul bilanciatore** ma con le variabili dell'host corrente, quindi toglie proprio la sua riga |
 
 ### `tasks`: aggiornare e verificare
@@ -213,7 +213,7 @@ toccato.
   con `delegate_to`, aggiornamento, verifica (`uri` + `until`), `post_tasks` che lo rimettono; `max_fail_percentage`
   per fermarsi se un lotto fallisce. Il primo lotto piccolo (`serial: [1, "25%"]`) fa da **canary**.
 - **delegate_to vs run_once vs local_action?** `delegate_to` esegue il task su un altro host ma con le variabili
-  dell'host corrente (utile per LB, DNS, monitoraggio). `run_once` lo esegue una volta sola per **lotto**: senza `serial` è una volta per play, con `serial` una volta per ogni lotto (la risposta nel file, «una volta per play», vale solo senza `serial`).
+  dell'host corrente (utile per LB, DNS, monitoraggio). `run_once` lo esegue una volta sola per **lotto**: senza `serial` è una volta per play, con `serial` una volta per ogni lotto.
   `local_action` = `delegate_to: localhost`.
 - **Il segreto compare nei log della pipeline.** `no_log: true` sui task che lo usano (anche nei loop: l'item viene
   stampato), niente `debug` di variabili sensibili, e in AWX le credenziali come tipo dedicato, non come extra vars.

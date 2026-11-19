@@ -226,7 +226,7 @@ container, lo stesso che sta nello stato.
 |---|---|---|
 | 1 | `cp $LEZIONI/terraform/01-workflow-provider-state.tf main.tf && grep -n '^resource\|^terraform\|^provider' main.tf` | copia il file di lezione come `main.tf` e mostra le righe che **iniziano** con `terraform`, `provider`, `resource`: il blocco versioni, il provider e le tre risorse. Gli `output` non compaiono, il grep non li cerca |
 | 2 | `terraform init` | scarica il provider docker in `.terraform/` e scrive `.terraform.lock.hcl` (versioni bloccate, va in git) |
-| 3 | `terraform fmt -check -diff; terraform validate` | `fmt -check` non riscrive il file: se la formattazione non è quella canonica mostra il diff ed esce con errore. Il `;` fa girare `validate` in ogni caso: controllo di sintassi e tipi, senza toccare niente |
+| 3 | `(terraform fmt -check -diff; fmt=$?; terraform validate && exit $fmt)` | `fmt -check` non riscrive il file: se la formattazione non è quella canonica mostra il diff ed esce con errore. `validate` gira in ogni caso: controllo di sintassi e tipi, senza toccare niente. L'uscita del passo è quella di `validate` se fallisce, se no quella di `fmt` |
 | 4 | `terraform plan -out=piano.tfplan` | calcola le differenze fra codice e realtà e le **salva** nel file `piano.tfplan`. Alla prima volta sono tutte `+` (crea) |
 | 5 | `terraform apply piano.tfplan` | esegue **esattamente** quel piano, **senza domanda di conferma**: il piano è già stato approvato. Alla fine stampa gli output |
 | 6 | `curl -s localhost:8088 \| head -3` | le prime 3 righe della risposta di nginx: il container risponde sulla 8088 |
@@ -236,10 +236,9 @@ container, lo stesso che sta nello stato.
 | 10 | `terraform apply -replace=docker_container.web -auto-approve && curl -s -o /dev/null -w "HTTP %{http_code}\n" localhost:8088` | `-replace` ricrea la risorsa anche quando il plan non lo chiederebbe; qui rimette a posto il drift. Il `curl` stampa solo il codice HTTP |
 | 11 | `terraform destroy -auto-approve` | distrugge tutto quello che è nello stato: container e rete. L'immagine resta sul disco (`keep_locally = true`) |
 
-Nessun passo è pensato per fallire. Attenzione al passo 3: `terraform fmt -check -diff; terraform validate`. Con il
-`;` il codice di uscita è quello dell'**ultimo** comando, `validate`. Se `fmt -check` trova differenze di
-formattazione **non** compare nessun `↳ uscita` in rosso: il segnale è il diff stampato, che ti dice cosa
-cambierebbe `terraform fmt`.
+Nessun passo è pensato per fallire. Il passo 3 fa girare `validate` anche quando `fmt -check` trova differenze, e
+poi esce con l'errore di `validate` se c'è, se no con quello di `fmt`. Le parentesi aprono una sotto-shell: l'`exit`
+chiude quella, non lo script. Se la formattazione non è canonica vedi il diff e `↳ uscita 3` in rosso.
 
 ### Perché al passo 9 ricrea e non riavvia
 
