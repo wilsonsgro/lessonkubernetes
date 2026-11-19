@@ -308,6 +308,12 @@ Lo script 02 lo copia in `lavoro/argocd/mio-progetto` e ne fa un repository git:
 | `argocd/05-stack-con-argocd.sh` | facoltativo: lo stack HAProxy/nginx/PHP/Redis/MariaDB passa sotto Argo CD (con `prune: true`) |
 | `argocd/99-pulizia.sh` | toglie Application, sito, stack, Gitea e Argo CD |
 
+Accanto a ogni script c'è la sua **spiegazione** (`argocd/NN-nome.md`), e così anche per `comune.sh` e `gitea.yaml`.
+Ogni spiegazione contiene:
+- i passi uno per uno: cosa vedi, quali falliscono apposta, cosa resta in rosso e perché;
+- i file di `mio-progetto/` che lo script usa: Application, Deployment, Terraform, Dockerfile;
+- le trappole e, per gli script 01–05 e `gitea.yaml`, tre esercizi.
+
 ```bash
 bash argocd/01-installa-argocd.sh     # poi 02, 03, 04 in ordine; 05 facoltativo
 ```
@@ -330,6 +336,7 @@ bash argocd/01-installa-argocd.sh     # poi 02, 03, 04 in ordine; 05 facoltativo
 | `lib/passo.sh` | le funzioni comuni (il passo guidato, il controllo del contesto `lab`) |
 | `kubernetes/README.md` | l'indice degli script Kubernetes: cosa impari, da cosa dipende, link alla spiegazione |
 | `terraform/*.md` | la spiegazione di ogni script Terraform & Ansible (00–10), accanto allo script |
+| `argocd/*.md` | la spiegazione di ogni script di Argo CD (01–05, 99), di `comune.sh` e di `gitea.yaml` |
 | `lezioni/` | copia dei file delle lezioni (manifest, `.tf`, playbook): **leggili** mentre lo script li applica |
 | `lezioni/kubernetes/*.md` | la spiegazione di ogni lezione Kubernetes (01–20): cosa fa il file, passo per passo lo script guidato, trappole, esercizi |
 | `lavoro/` | la creano gli script: chart Helm, overlay Kustomize, progetti Terraform con il loro state, inventari Ansible. Puoi cancellarla quando vuoi |
