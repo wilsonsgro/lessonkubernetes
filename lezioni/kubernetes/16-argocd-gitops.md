@@ -1,6 +1,6 @@
 # 16 — Argo CD: GitOps sul tuo sito, in locale
 
-Spiegazione di `16-argocd-gitops.sh` (questa cartella).
+Spiegazione di `16-argocd-gitops.sh` (questa cartella). Lezione sul sito: http://127.0.0.1:3000/kubernetes/16
 
 ## In una frase
 

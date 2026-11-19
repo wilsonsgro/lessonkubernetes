@@ -1,6 +1,6 @@
 # 15 — Stack completo su MicroK8s: PHP × 3, MariaDB, Redis, Elasticsearch, Ingress e Headlamp
 
-Spiegazione di `15-stack-microk8s.sh` (questa cartella).
+Spiegazione di `15-stack-microk8s.sh` (questa cartella). Lezione sul sito: http://127.0.0.1:3000/kubernetes/15
 
 ## In una frase
 

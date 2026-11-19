@@ -1,6 +1,6 @@
 # 20 — L'API di Kubernetes, i CRD e il threat model (STRIDE)
 
-Spiegazione di `20-api-crd-threat-model.yaml` (questa cartella).
+Spiegazione di `20-api-crd-threat-model.yaml` (questa cartella). Lezione sul sito: http://127.0.0.1:3000/kubernetes/20
 
 ## In una frase
 

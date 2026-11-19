@@ -1,6 +1,6 @@
 # 19 — DNS e service discovery: dal nome all'IP, passo per passo
 
-Spiegazione di `19-dns-service-discovery.yaml` (questa cartella).
+Spiegazione di `19-dns-service-discovery.yaml` (questa cartella). Lezione sul sito: http://127.0.0.1:3000/kubernetes/19
 
 ## In una frase
 

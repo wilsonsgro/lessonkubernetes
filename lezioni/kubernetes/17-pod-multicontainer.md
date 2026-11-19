@@ -1,6 +1,6 @@
 # 17 — Dentro il Pod: init container, sidecar nativi, ciclo di vita
 
-Spiegazione di `17-pod-multicontainer.yaml` (questa cartella).
+Spiegazione di `17-pod-multicontainer.yaml` (questa cartella). Lezione sul sito: http://127.0.0.1:3000/kubernetes/17
 
 ## In una frase
 

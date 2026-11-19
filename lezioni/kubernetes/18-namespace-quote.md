@@ -1,6 +1,6 @@
 # 18 — Namespace: quote, limiti e cosa non isolano
 
-Spiegazione di `18-namespace-quote.yaml` (questa cartella).
+Spiegazione di `18-namespace-quote.yaml` (questa cartella). Lezione sul sito: http://127.0.0.1:3000/kubernetes/18
 
 ## In una frase
 
