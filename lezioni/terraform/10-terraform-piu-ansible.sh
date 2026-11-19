@@ -35,6 +35,22 @@
 #   terraform apply -auto-approve -var repliche=3    # un nodo in più…
 #   ansible-playbook -i inventory.yml site.yml        # …configurato dallo stesso playbook
 #   terraform destroy -auto-approve
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   La catena al contrario: qui è Ansible a lanciare Terraform, con
+#   community.general.terraform, e poi a usarne il risultato:
+#     grep -n -A6 'community.general.terraform' ansible/roles/cluster/tasks/main.yml
+#   Il posto dell'inventario scritto da Terraform lo prende l'elenco dei
+#   nodi, che diventa la config di HAProxy:
+#     grep -n -A2 -F '{% for nome, ip in nodi %}' ansible/roles/haproxy/templates/haproxy.cfg.j2
+#   TRAPPOLA: senza plan_file, il modulo lascia in /tmp un tmp*.tfplan per
+#   ogni giro, con dentro lo stato (chiavi e password). Rimedio: TMPDIR
+#   privato e pulizia in always.
+#     grep -n 'TMPDIR' ansible/roles/cluster/tasks/main.yml ansible/roles/app/tasks/main.yml
+#   Per controllarlo: `unzip -l` su un piano, poi cerca le chiavi dentro.
+#   Guardare solo i log non basta.
 
 set -euo pipefail
 D=./catena

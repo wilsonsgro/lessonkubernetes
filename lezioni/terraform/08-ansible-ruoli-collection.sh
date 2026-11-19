@@ -37,6 +37,18 @@
 #   ansible-playbook sito.yml
 #   ansible-playbook sito.yml -e sito_porta=ottanta     # argument_specs lo blocca
 #   docker exec web2 curl -s localhost:8080
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Sette ruoli, un tag per ruolo, in ordine:
+#     cat ansible/site.yml
+#   Le collection sono fissate in requirements.yml, e le installa deploy.sh
+#   prima del playbook. Il modulo docker vuole la libreria Python nel venv
+#   di pipx:
+#     grep -n -E 'name:|version:' ansible/requirements.yml
+#     grep -n -E 'galaxy|pipx' deploy.sh
+#   Si rilancia un solo pezzo: `./deploy.sh --tags haproxy,verifica`.
 
 set -euo pipefail
 R=roles/sito_nginx

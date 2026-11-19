@@ -31,6 +31,20 @@
 #   terraform apply -auto-approve -var 'ambiente=prod'      # admin esiste solo in prod
 #   togli "admin" da var.servizi e rifai il plan con -var 'ambiente=prod':
 #   solo admin viene distrutto (in dev non c'era: il plan non cambierebbe niente)
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Un for_each su un map costruito con un'espressione for. La chiave è
+#   "Kind/nome": nello stato c'è kubernetes_manifest.app["Deployment/nginx"].
+#     grep -n -F '"${m.kind}/${m.metadata.name}"' terraform/app/workload.tf
+#   TRAPPOLA, presa davvero: le chiavi di for_each devono essere note al
+#   plan. Il checksum calcolato sui segreti random rendeva ignoto l'intero
+#   template ("known only after apply"). Rimedio: checksum solo su config
+#   e variabili, namespace preso da var.namespace e non dalla risorsa.
+#     grep -n 'checksum_backend' terraform/app/workload.tf
+#   nonsensitive() serve perché var.app_key è sensitive, e un valore
+#   sensitive non può stare in un'annotazione in chiaro. L'hash invece sì.
 
 terraform {
   required_version = ">= 1.10"

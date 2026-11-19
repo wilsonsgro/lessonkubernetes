@@ -32,6 +32,23 @@
 #     ↑ nome completo: il nslookup di busybox con il nome corto dà NXDOMAIN (provato)
 #   kubectl -n lab scale sts/db --replicas=1              # i PVC di db-1/db-2 RESTANO
 #   kubectl drain <nodo> --ignore-daemonsets              # il PDB frena lo sfratto
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   mariadb, redis, elasticsearch e minio sono quattro StatefulSet con
+#   volumeClaimTemplates sulla storage class csi-hostpath-sc:
+#     grep -n 'storageClassName' terraform/app/manifests/dati.yaml.tftpl
+#     grep -n -A3 'variable "storage_class"' terraform/app/variables.tf
+#   Perché non lo `standard` di minikube: con 2 nodi il suo hostpath crea il
+#   volume su un nodo solo, e il Pod schedulato sull'altro nodo non lo vede.
+#   Elasticsearch scrive come uid 1000: fsGroup rende il volume suo.
+#     grep -n -B1 'fsGroup' terraform/app/manifests/dati.yaml.tftpl
+#   DIFFERENZA con questa lezione: lì il Service è headless (clusterIP: None).
+#   Nel progetto i Service dei dati sono ClusterIP: con 1 replica basta
+#   il nome del Service, e il DNS per singolo Pod non serve.
+#   DA COLLOQUIO: niente PDB, perché con 1 replica e minAvailable 1 il PDB
+#   bloccherebbe ogni drain del nodo.
 
 apiVersion: v1
 kind: Service

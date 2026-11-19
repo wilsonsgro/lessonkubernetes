@@ -41,6 +41,18 @@
 #   6. CNI assegna l'IP; probe readiness OK → il Pod entra negli EndpointSlice
 #   Nessuno "chiama" il componente successivo: ognuno osserva l'apiserver
 #   (watch) e reagisce. Per questo il sistema si auto-ripara.
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Il cluster non nasce da `minikube start` ma da una risorsa Terraform:
+#   2 nodi (biodistretto, biodistretto-m02), driver docker, CNI kindnet.
+#     grep -n -A9 'resource "minikube_cluster"' terraform/cluster/main.tf
+#   Gli addon sono una variabile: metrics-server per `kubectl top`, e
+#   csi-hostpath-driver per lo storage che regge con più nodi (lezione 05).
+#     grep -n -A9 'variable "addon"' terraform/cluster/variables.tf
+#   Differenza con il cluster `lab`: lì il CNI è Calico, qui è kindnet.
+#   Il provider minikube lasciava acceso anche un secondo CNI (lezione 08).
 
 set -euo pipefail
 

@@ -32,6 +32,21 @@
 #     "failed to validate", il file sul server resta quello buono, nginx risponde
 #   docker exec web1 curl -s localhost
 #   ansible-lint site.yml
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Tutti i pezzi di questa lezione, in un playbook vero:
+#   • template con validate prima di sostituire il file, e handler:
+#       grep -n -E 'validate|Riavvia' ansible/roles/haproxy/tasks/main.yml
+#   • block/always per pulire anche quando terraform fallisce:
+#       grep -n -A3 'always:' ansible/roles/cluster/tasks/main.yml
+#   • loop con label leggibile, changed_when e failed_when sull'esito:
+#       grep -n -E 'label|failed_when' ansible/roles/verifica/tasks/main.yml
+#   • until/retries per aspettare uno stato invece di sleep fissi:
+#       grep -n -A3 'until:' ansible/roles/verifica/tasks/main.yml
+#   Il secondo giro di ./deploy.sh deve dare changed=0. Ogni command ha il
+#   suo changed_when per questo.
 
 - name: Configura i server web
   hosts: web

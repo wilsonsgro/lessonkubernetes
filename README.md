@@ -367,3 +367,33 @@ kubectl config get-contexts      # vuoto, o errore perché non c'è una config
 Gli script sono stati provati per intero su questo PC il 30 ottobre 2026: Kubernetes 01–14
 e lo stack su minikube, Terraform e Ansible 01–10. Non sono ancora stati provati qui la
 lezione 15, lo stack su MicroK8s e l'installazione con apt della 00.
+
+---
+
+## 10. Il progetto vero: il Biodistretto su minikube
+
+Ogni file in `lezioni/` ha in fondo all'intestazione un riquadro **«NEL PROGETTO VERO»**.
+Il riquadro mostra dove lo stesso concetto compare in `~/biodistretto/kubernetes` (branch
+`kubernetes`): lo stack docker del Biodistretto portato su un minikube a 2 nodi, con Terraform,
+Ansible e HAProxy. Contiene il fatto, il perché e un `grep` da lanciare in quella cartella.
+In molti c'è anche un esercizio sul cluster vero.
+
+| Dove guardare | Cosa c'è nel progetto |
+|---|---|
+| Kubernetes 02, 04, 11 | probe per tipo di processo, ConfigMap da file, checksum nell'annotazione per far ripartire i Pod |
+| Kubernetes 03, 15, 19 | NodePort con `externalTrafficPolicy: Local`, HAProxy fuori dal cluster con PROXY protocol, `hostAliases` verso un ClusterIP fisso |
+| Kubernetes 05, 06 | quattro StatefulSet su `csi-hostpath-sc` (lo `standard` non regge con 2 nodi), `topologySpreadConstraints` |
+| Kubernetes 08, 20 | guasti veri: due CNI accesi, `kubectl cp` senza tar, kubelet spento dopo il riavvio; STRIDE sulle cose trovate |
+| Terraform 02, 03, 04 | `for_each` con chiavi note al plan, `terraform_remote_state`, perché due root e non due moduli |
+| Terraform 07–10 | `validate` e handler, `block`/`always`, Ansible che lancia Terraform, piani in `/tmp` con dentro i segreti |
+
+Per accenderlo (circa 10 minuti da zero, usa 2 nodi da 2 CPU e 3,5 GB: meglio con il cluster
+`lab` spento):
+
+```bash
+cd ~/biodistretto/kubernetes && ./deploy.sh          # il secondo giro deve dare changed=0
+kubectl --context biodistretto -n biodistretto get pods -o wide
+./deploy.sh distruggi                                # toglie cluster, HAProxy e la riga @reboot
+```
+
+I `grep` dei riquadri sono stati controllati uno per uno sui file del commit `3c5a481`.

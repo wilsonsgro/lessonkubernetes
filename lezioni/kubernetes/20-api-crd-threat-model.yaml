@@ -107,6 +107,24 @@
 #   kubectl apply -f 20-api-crd-threat-model.yaml
 #   kubectl -n lab-api get corsi ; kubectl get --raw /apis/lab.esempio.it/v1/namespaces/lab-api/corsi
 #   kubectl -n lab-api exec blindato -- grep -E 'Seccomp|CapEff|NoNewPrivs' /proc/1/status
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   STRIDE sul Biodistretto, dalle cose trovate davvero:
+#   • Information disclosure: community.general.terraform lasciava in /tmp
+#     un piano con dentro lo stato, cioè chiavi e password. Rimedio: TMPDIR
+#     privato e pulizia in un always:
+#       grep -n -A1 'environment:' ansible/roles/app/tasks/main.yml
+#   • Information disclosure: la .env del backend finiva nell'immagine.
+#     Rimedio: build da un contesto pulito (vedi la lezione 12).
+#   • Elevation: HAProxy gira come root in rete host, ed Elasticsearch è
+#     senza sicurezza. Va bene in laboratorio, in produzione no:
+#       grep -n -A1 'xpack.security.enabled' terraform/app/manifests/dati.yaml.tftpl
+#   • Spoofing: il sito chiede una password (basic auth), e TLS usa la CA
+#     del laboratorio, che il browser deve importare.
+#   • DoS: maxconn in HAProxy, limit di memoria su ogni container.
+#       grep -n 'maxconn' ansible/roles/haproxy/templates/haproxy.cfg.j2
 
 apiVersion: v1
 kind: Namespace

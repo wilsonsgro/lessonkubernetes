@@ -43,6 +43,18 @@
 #                                               # non riavvia: le porte di un container fermo spariscono)
 #   terraform apply -replace=docker_container.web   # ricrea una risorsa sana
 #   terraform destroy
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Due stack, cinque provider: minikube (cluster) e kubernetes, random,
+#   tls, htpasswd (app). Il lock file è nel repo, lo stato no:
+#     grep -n 'source' terraform/cluster/main.tf terraform/app/versions.tf
+#     grep -n 'tfstate' .gitignore
+#   Lo stato contiene password, chiavi TLS e la chiave client del cluster,
+#   anche se gli output sono `sensitive`. sensitive nasconde il valore
+#   nell'output, ma non lo cifra.
+#     terraform -chdir=terraform/app output        # i sensibili appaiono <sensitive>
 
 terraform {
   required_version = ">= 1.10"

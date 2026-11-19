@@ -92,6 +92,21 @@
 #   bash 15-stack-microk8s.sh verifica    # chi risponde, da quale pod
 #   bash 15-stack-microk8s.sh certificati # SAN dopo un cambio di IP
 #   bash 15-stack-microk8s.sh smonta      # via namespace, cluster fermo
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Lo stesso tipo di stack su minikube, con il Biodistretto (Laravel +
+#   Vue). Cosa cambia rispetto a questa lezione:
+#   • HAProxy sta FUORI dal cluster, sull'host, come un load balancer del
+#     cloud. Inoltra in TCP verso i NodePort, senza terminare TLS:
+#       grep -n -E 'mode tcp|send-proxy-v2' ansible/roles/haproxy/templates/haproxy.cfg.j2
+#   • il TLS lo termina nginx nel cluster, con una CA del laboratorio fatta
+#     da Terraform. nginx accetta il PROXY protocol su 80 e 443:
+#       grep -n 'proxy_protocol' terraform/app/nginx/bordo.conf
+#   • la config di HAProxy la genera Ansible dall'elenco dei nodi, e la
+#     valida prima di sostituirla:
+#       grep -n 'validate' ansible/roles/haproxy/tasks/main.yml
 
 set -euo pipefail
 K="microk8s kubectl"

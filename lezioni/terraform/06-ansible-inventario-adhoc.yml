@@ -51,6 +51,17 @@
 #   callbacks_enabled = ansible.posix.profile_tasks   # tempi per task
 #   [ssh_connection]
 #   pipelining = True           # meno round-trip SSH (richiede no requiretty)
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Un inventario di un solo host, la macchina stessa, con connessione
+#   local e lo stesso Python di ansible-playbook (pipx):
+#     cat ansible/inventory.ini
+#   Le variabili comuni stanno in group_vars/all.yml. La password delle
+#   statistiche la genera il lookup password una volta sola, e poi la
+#   rilegge dallo stesso file:
+#     grep -n "lookup('ansible.builtin.password'" ansible/group_vars/all.yml
 
 all:
   vars:

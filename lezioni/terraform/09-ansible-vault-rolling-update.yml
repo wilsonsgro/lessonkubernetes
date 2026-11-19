@@ -31,6 +31,23 @@
 #     ↑ web1 passa alla 2.0; web2 fallisce la verifica e RESTA FUORI dal bilanciatore
 #       (post_tasks non gira): con più host, i lotti successivi non partirebbero
 #   docker exec db1 cat /etc/lb/backends     # chi è dentro il bilanciatore
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Il progetto non usa Vault, perché nessun segreto passa da git:
+#   • l'APP_KEY la legge dalla .env dello stack docker con slurp e no_log,
+#     e la passa a Terraform come TF_VAR_ (variabile d'ambiente: non si
+#     vede in `ps` e nemmeno nei log):
+#       grep -n -E 'no_log|TF_VAR_app_key' ansible/roles/app/tasks/main.yml
+#   • le altre password le genera Terraform (random_password).
+#   Il rolling update lo fa Kubernetes (Deployment con 2 repliche, una per
+#   nodo), e HAProxy toglie il nodo senza nginx grazie al controllo di
+#   salute e a externalTrafficPolicy Local. Prova:
+#     kubectl --context biodistretto cordon biodistretto-m02
+#     kubectl --context biodistretto -n biodistretto delete pod -l app=nginx \
+#       --field-selector spec.nodeName=biodistretto-m02
+#     …e nelle statistiche di HAProxy m02 va DOWN. Poi uncordon.
 
 - name: Rolling update dei server web
   hosts: web

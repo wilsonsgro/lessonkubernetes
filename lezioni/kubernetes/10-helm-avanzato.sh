@@ -22,6 +22,17 @@
 #   docker run -d --name registry -p 5000:5000 registry:3     # registry OCI locale
 #   bash 10-helm-avanzato.sh crea
 #   bash 10-helm-avanzato.sh prova
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   L'equivalente di un hook post-install è il Job minio-init, che crea il
+#   bucket. Terraform lo lancia dopo i dati e aspetta la condizione
+#   Complete prima di creare l'app:
+#     grep -n -A6 'resource "kubernetes_manifest" "minio_init"' terraform/app/workload.tf
+#     grep -n -E 'backoffLimit|mc mb' terraform/app/manifests/minio-init.yaml.tftpl
+#   Il Job è idempotente (--ignore-existing), così rilanciarlo non rompe.
+#   Le dipendenze del chart diventano depends_on fra le risorse.
 
 set -euo pipefail
 NS=lab-piattaforma

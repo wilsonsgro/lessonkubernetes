@@ -27,6 +27,19 @@
 #   kubectl -n lab rollout undo deploy/web --to-revision=1
 #   kubectl -n lab get rs -o wide                     # i ReplicaSet della storia
 #   kubectl -n lab get pod -o custom-columns=NOME:.metadata.name,QOS:.status.qosClass
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   backend, frontend e nginx sono Deployment con `replicas: ${repliche}`.
+#   Le probe cambiano secondo il processo: php-fpm non parla HTTP, quindi
+#   tcpSocket sulla 9000; nginx ha una porta solo per la salute (8081).
+#     grep -n -B1 -A2 'tcpSocket' terraform/app/manifests/app.yaml.tftpl
+#     grep -n -A3 'path: /healthz' terraform/app/manifests/app.yaml.tftpl
+#   Risorse: requests su tutti, e limit solo sulla memoria (niente CPU
+#   throttling). Terraform aspetta la fine del rollout prima di proseguire:
+#     grep -n 'rollout =' terraform/app/workload.tf
+#   Il rollout parte da solo quando cambia la config: vedi la lezione 04.
 
 apiVersion: v1
 kind: Namespace

@@ -37,6 +37,19 @@
 #   kubectl -n lab describe hpa api                    # eventi di scala
 #   kubectl top pod -n lab
 #   kubectl taint nodes lab-m02 dedicato=batch:NoSchedule   # poi rimuovilo con "-"
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   backend, frontend e nginx usano topologySpreadConstraints su hostname,
+#   con maxSkew 1. Con 2 repliche e 2 nodi ne va una per nodo. Con
+#   ScheduleAnyway, se un nodo è giù il Pod parte comunque sull'altro.
+#     grep -n -A6 'topologySpreadConstraints' terraform/app/manifests/app.yaml.tftpl
+#   metrics-server è un addon del cluster, quindi un HPA funzionerebbe:
+#     grep -n 'metrics-server' terraform/cluster/variables.tf
+#   TRAPPOLA: le repliche le decide Terraform (repliche_web). Se aggiungi un
+#   HPA, Terraform e HPA si contendono spec.replicas, e ogni apply riporta
+#   il numero al valore del codice. Con l'HPA, toglilo dal template.
 
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass

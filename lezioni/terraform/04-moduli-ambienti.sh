@@ -32,6 +32,19 @@
 #   terraform output                         # output del root ← output del modulo
 #   cd ../prod && terraform init && terraform plan    # stesso modulo, 3 repliche
 #   terraform state list                     # module.negozio.docker_container.replica["0"]…
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Il progetto usa due root module e non moduli dentro un'unica root.
+#   Il motivo: il provider kubernetes si configura con gli output del
+#   cluster, e kubernetes_manifest vuole il cluster raggiungibile già al
+#   plan. Nella stessa root, il primo plan da zero fallirebbe.
+#     grep -n -A6 'provider "kubernetes"' terraform/app/versions.tf
+#   ESERCIZIO: un secondo ambiente è un altro dominio e un altro namespace
+#   (variabili dominio e namespace). Prova
+#   `terraform -chdir=terraform/app plan -var dominio=prova.lab` e conta
+#   cosa verrebbe sostituito: certificati, ConfigMap e Pod.
 
 set -euo pipefail
 R=./iac

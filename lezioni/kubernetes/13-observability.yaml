@@ -50,6 +50,19 @@
 #   Genera errori e guarda l'alert passare a pending e poi firing:
 #   kubectl -n lab-oss run carico --rm -it --image=busybox:1.37 -- \
 #     sh -c 'while true; do wget -q -O- http://app:8080/err; wget -q -O- http://app:8080/; done'
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Il segnale di salute usato davvero è il CSV delle statistiche di HAProxy:
+#   Ansible riprova finché ogni nodo è UP.
+#     grep -n -A10 'Attende che HAProxy' ansible/roles/verifica/tasks/main.yml
+#   Le statistiche hanno la password (in .cache/haproxy-stats, mai in git):
+#     grep -n 'stats auth' ansible/roles/haproxy/templates/haproxy.cfg.j2
+#   ESERCIZIO: HAProxy 3.2 ha già un exporter Prometheus. Un frontend con
+#   `http-request use-service prometheus-exporter if { path /metrics }`
+#   e uno scrape da Prometheus (lezione 13) danno lo stato dei nodi come
+#   metrica, non più come CSV.
 
 apiVersion: v1
 kind: Namespace

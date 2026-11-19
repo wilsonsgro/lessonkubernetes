@@ -36,6 +36,22 @@
 #   secondo di ritardo. Senza sleep anche il client AUTORIZZATO viene
 #   bloccato (provato su k3s). In produzione: un Pod che chiama una
 #   dipendenza al primo istante deve riprovare, non morire al primo errore.
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Niente Ingress: davanti al cluster c'è HAProxy sull'host (lezione 15),
+#   che entra dal Service nginx di tipo NodePort (30080, 30443, 30081).
+#     grep -n -A3 'type: NodePort' terraform/app/manifests/app.yaml.tftpl
+#   externalTrafficPolicy: Local fa sì che un nodo senza nginx risponda
+#   picche, e così il controllo di HAProxy è davvero per singolo nodo.
+#   Senza, kube-proxy girerebbe la richiesta all'altro nodo e ogni nodo
+#   sembrerebbe sano. In più conserva l'IP del client.
+#   I servizi interni si trovano per nome breve (mariadb, redis…):
+#     grep -n -E 'DB_HOST|REDIS_HOST' terraform/app/config.tf
+#   ESERCIZIO: il progetto non ha NetworkPolicy. Scrivine una che lasci
+#   arrivare a mariadb solo backend e worker, poi provala con il client
+#   "intruso" qui sopra. Prima controlla che kindnet la applichi davvero.
 
 apiVersion: v1
 kind: Service

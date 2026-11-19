@@ -77,6 +77,19 @@
 #   kubectl -n lab-pod get job lavoro          # Complete anche col sidecar acceso
 #   kubectl -n lab-pod patch pod web-log -p '{"spec":{"containers":[{"name":"app","ports":[{"containerPort":81}]}]}}'
 #     ↑ Forbidden: il Pod è immutabile
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Il bucket di MinIO lo crea un Job (minio-init), non un init container:
+#   va fatto una volta per cluster, non a ogni avvio di un Pod.
+#     grep -n -A3 'mc alias' terraform/app/manifests/minio-init.yaml.tftpl
+#   Cosa manca, e si vede: dopo un riavvio nginx e worker ripartono un paio
+#   di volte finché DNS e mariadb non sono pronti.
+#   ESERCIZIO: aggiungi al worker un init container che aspetta mariadb
+#   (busybox: `until nc -z mariadb 3306; do sleep 2; done`) e conta i
+#   restart dopo uno stop e start del cluster (minikube -p biodistretto).
+#     grep -n -A3 'name: worker' terraform/app/manifests/app.yaml.tftpl
 
 apiVersion: v1
 kind: Namespace

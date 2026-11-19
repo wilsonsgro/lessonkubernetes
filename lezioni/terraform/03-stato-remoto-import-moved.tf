@@ -34,6 +34,17 @@
 #   REFACTOR: rinomina la risorsa "cache" in "sessioni", aggiungi il blocco
 #     moved qui sotto (già scritto, commentato): il plan dice "has moved", 0 to destroy
 #   terraform state list · terraform state show docker_container.legacy
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Lo stack app legge gli output dello stack cluster con
+#   terraform_remote_state (backend local, path relativo):
+#     grep -n -A4 'terraform_remote_state' terraform/app/versions.tf
+#   DA COLLOQUIO: remote_state espone TUTTI gli output dell'altro stack,
+#   compresi i sensibili (qui la chiave client del cluster). In un team il
+#   backend diventa S3/GCS con locking, e chi legge deve avere il permesso.
+#     grep -n 'sensitive' terraform/cluster/outputs.tf
 
 terraform {
   required_version = ">= 1.10"

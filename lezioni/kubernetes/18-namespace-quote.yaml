@@ -64,6 +64,19 @@
 #   kubectl -n lab-team-a get pod nudo -o jsonpath='{.spec.containers[0].resources}'
 #   kubectl -n lab-team-a scale deploy riempi --replicas=6
 #   kubectl -n lab-team-a get events --field-selector reason=FailedCreate
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Tutto sta nel namespace biodistretto, creato da Terraform:
+#     grep -n -A4 'resource "kubernetes_namespace_v1"' terraform/app/segreti.tf
+#   Ogni container ha già le requests, quindi una ResourceQuota non
+#   romperebbe niente. Quanto chiede oggi il namespace:
+#     kubectl --context biodistretto -n biodistretto get pods -o json | jq -r \
+#       '[.items[].spec.containers[].resources.requests.memory] | join(" ")'
+#   ESERCIZIO: una quota appena sopra quel totale, poi
+#   `./deploy.sh --tags immagini,app -e repliche_web=3`: quale Pod resta
+#   fuori, e cosa dice l'evento?
 
 apiVersion: v1
 kind: Namespace

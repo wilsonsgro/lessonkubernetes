@@ -29,6 +29,19 @@
 #   kubectl kustomize kust/overlays/prod | less      # rendering, senza cluster
 #   diff <(kubectl kustomize kust/overlays/dev) <(kubectl kustomize kust/overlays/prod)
 #   bash 11-kustomize.sh prova
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Kustomize fa ripartire i Pod quando cambia la config aggiungendo un hash
+#   al NOME della ConfigMap (configMapGenerator). Il progetto ottiene lo
+#   stesso risultato tenendo fisso il nome e mettendo l'hash in
+#   un'annotazione del Pod:
+#     grep -n 'checksum_' terraform/app/workload.tf
+#     grep -n 'biodistretto/config' terraform/app/manifests/app.yaml.tftpl
+#   DA COLLOQUIO: con l'hash nel nome restano le ConfigMap vecchie, utili
+#   per il rollback ma da potare. Con l'annotazione no, però il rollback
+#   della config passa dal codice.
 
 set -euo pipefail
 K=./kust

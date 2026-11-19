@@ -33,6 +33,19 @@
 #   kubectl -n lab-sicuro run root --image=busybox:1.37 -- sleep 1d
 #     ↑ RIFIUTATO dalla PSA "restricted": il messaggio elenca cosa manca
 #   kubectl -n lab-sicuro get pod                            # nginx Running
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Il worker gira come uid/gid 1000, Elasticsearch con fsGroup 1000:
+#     grep -n -A2 'runAsUser' terraform/app/manifests/app.yaml.tftpl
+#   Il resto gira come vuole l'immagine. ESERCIZIO, senza cambiare niente:
+#     kubectl --context biodistretto label --dry-run=server --overwrite ns \
+#       biodistretto pod-security.kubernetes.io/enforce=restricted
+#     Le righe di Warning dicono quali Pod violerebbero il profilo e perché.
+#   Fuori dal cluster: il container HAProxy gira come root in rete host,
+#   perché senza sudo le porte 80 e 443 dell'host non si aprono.
+#     grep -n -E 'network_mode|user:' ansible/roles/haproxy/tasks/main.yml
 
 apiVersion: v1
 kind: Namespace

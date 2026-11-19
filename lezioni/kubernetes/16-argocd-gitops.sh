@@ -72,6 +72,17 @@
 #   su terraform/ o sito/ non cambia niente nel cluster. In un'azienda vera
 #   spesso i manifest stanno in un repository a parte ("config repo"), così
 #   un commit di codice non è un deploy e i permessi sono separati.
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Il Biodistretto è push: è Ansible che lancia terraform apply. Per
+#   portarlo in GitOps con Argo CD, l'ostacolo vero sono i segreti: oggi li
+#   genera Terraform e stanno nel tfstate. In un repo letto da Argo CD
+#   servirebbero Sealed Secrets o External Secrets.
+#     grep -n '^resource "kubernetes_secret_v1"' terraform/app/segreti.tf
+#   I manifest invece sono già YAML, quasi pronti per una Application:
+#     ls terraform/app/manifests
 
 set -euo pipefail
 kubectl config use-context lab

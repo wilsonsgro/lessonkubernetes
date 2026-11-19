@@ -34,6 +34,20 @@
 #     kubectl apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 #     kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
 #     kubectl -n argocd port-forward svc/argocd-server 8443:443
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   La pipeline è locale (deploy.sh → Ansible), ma segue le stesse regole.
+#   Immagine costruita da un contesto pulito: senza .env, perché il backend
+#   non ha un .dockerignore e la .env finirebbe nell'immagine.
+#     grep -n 'exclude' docker/build.sh
+#   Il tag è l'ID dell'immagine: stesso contenuto, stesso tag, e nessun
+#   rollout inutile. È l'equivalente locale del tag con lo SHA del commit.
+#     grep -n 'cut -c1-12' docker/build.sh
+#   Non c'è un registry: `minikube image load`, e IfNotPresent nei Pod.
+#     grep -n 'image load' ansible/roles/immagini/tasks/main.yml
+#   Lo smoke test dopo il deploy è il ruolo verifica (lezione 07 Terraform).
 
 stages: [lint, test, build, scan, deploy-staging, deploy-prod]
 

@@ -87,6 +87,19 @@
 #   finestra da 5m si svuota) e subito dopo il ticket BudgetErroriLento
 #   diventa active e arriva a /ticket: tolta l'inibizione resta il debito
 #   della finestra lunga, che è giusto seguire di giorno
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   HAProxy scrive i log su stdout in formato tcplog, e si leggono con
+#   `docker logs biodistretto-haproxy`:
+#     grep -n -E 'log stdout|option tcplog' ansible/roles/haproxy/templates/haproxy.cfg.j2
+#   nginx riceve il PROXY protocol, quindi nei suoi log c'è l'IP vero del
+#   client e non quello del nodo. Va saputo per gli alert sugli IP:
+#     grep -n 'real_ip_header' terraform/app/nginx/www.conf.tftpl
+#     kubectl --context biodistretto -n biodistretto logs deploy/nginx --tail=5
+#   Se Alloy/Loki leggesse questi log, il campo da usare è quello, non
+#   l'indirizzo sorgente del Pod.
 
 apiVersion: v1
 kind: Namespace

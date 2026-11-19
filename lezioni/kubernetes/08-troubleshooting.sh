@@ -29,6 +29,27 @@
 #   kubectl -n rotto get pod -w          # aspetta ~1 minuto
 #   bash 08-troubleshooting.sh diagnosi
 #   bash 08-troubleshooting.sh pulisci
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Guasti veri, incontrati costruendolo:
+#   1) DUE CNI ACCESI. Il provider minikube lascia attivo
+#      87-podman-bridge.conflist accanto a kindnet. I Pod prendono IP doppi,
+#      il plugin CSI va in CrashLoop con «no route to host» verso 10.96.0.1
+#      e i PVC restano Pending. Si guarda sul nodo:
+#        minikube -p biodistretto ssh -n biodistretto-m02 -- ls /etc/cni/net.d
+#        grep -n -A3 '87-podman-bridge' ansible/roles/cluster/tasks/main.yml
+#   2) POD CHE NON FINISCONO MAI DI CANCELLARSI su quella rete rotta:
+#      servono --grace-period=0 --force, e solo sui Pod di kube-system.
+#        grep -n 'grace-period=0' ansible/roles/cluster/tasks/main.yml
+#   3) `kubectl cp` CON rc 127: kubectl cp usa tar dentro il container, e
+#      l'immagine MinIO non ce l'ha. Ripiego: port-forward e `mc mirror`.
+#        grep -n 'port-forward' ansible/roles/dati/tasks/media.yml
+#   4) DOPO UN RIAVVIO DEL PC l'API non risponde: i container dei nodi
+#      ripartono, ma kubelet e cri-docker no. Serve `minikube start`, ed è
+#      per questo che c'è un @reboot nel crontab:
+#        grep -n -B2 -A3 'special_time: reboot' ansible/roles/cluster/tasks/main.yml
 
 set -euo pipefail
 NS=rotto

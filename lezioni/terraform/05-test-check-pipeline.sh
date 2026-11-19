@@ -28,6 +28,17 @@
 #                      # invece dello status). Con `docker stop` invece il check
 #                      # non scatta: il container va ricreato e il check aspetta l'apply.
 #   terraform destroy -auto-approve
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Oggi il controllo dopo il deploy lo fa Ansible (ruolo verifica): codici
+#   HTTP attesi attraverso HAProxy, e meta.total > 0 sull'API.
+#     grep -n -E 'atteso:|failed_when' ansible/roles/verifica/tasks/main.yml
+#   ESERCIZIO: porta un controllo in Terraform con un blocco
+#   `check "api" { data "http" … }` nello stack app, e `terraform test`
+#   con mock_provider per la logica dei checksum. Un check fallito avvisa,
+#   ma non ferma l'apply: per fermarlo serve la verifica di Ansible.
 
 set -euo pipefail
 D=./t05

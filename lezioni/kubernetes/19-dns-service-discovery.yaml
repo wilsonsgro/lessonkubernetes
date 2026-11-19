@@ -93,6 +93,20 @@
 #   kubectl -n lab-dns exec rete -- sh -c 'tcpdump -nni eth0 -c 12 udp port 53 & sleep 1; dig +search example.com >/dev/null; wait'
 #   kubectl -n lab-dns exec rete -- dig +short SRV _http._tcp.web.lab-dns.svc.cluster.local
 #   kubectl -n lab-dns get endpointslices -l kubernetes.io/service-name=web
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Un caso che il solo DNS non risolve. Laravel chiama sé stesso
+#   all'indirizzo pubblico (https://www.biodistretto.lab), ma dentro il Pod
+#   quel nome non esiste. Soluzione: hostAliases verso il ClusterIP di
+#   nginx, che per questo è fissato:
+#     grep -n -A2 'hostAliases' terraform/app/manifests/app.yaml.tftpl
+#     grep -n -A3 'variable "ip_nginx"' terraform/app/variables.tf
+#   In alternativa: una regola rewrite di CoreDNS per *.biodistretto.lab.
+#   Vale per tutto il cluster ed è più comoda, però tocca kube-system.
+#   Il resto usa il nome breve del Service, nello stesso namespace:
+#     grep -n -E 'REDIS_HOST|ELASTICSEARCH_HOST|MINIO' terraform/app/config.tf
 
 apiVersion: v1
 kind: Namespace

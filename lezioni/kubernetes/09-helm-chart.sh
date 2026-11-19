@@ -20,6 +20,20 @@
 # LAB (sul tuo Ubuntu c'è helm v4.3.1)
 #   bash 09-helm-chart.sh crea       # scrive ./eco
 #   bash 09-helm-chart.sh prova      # lint, template, install, upgrade, rollback
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Il progetto NON usa Helm. Usa YAML con ${variabili}, resi da
+#   templatefile e separati in oggetti con manifest_decode_multi:
+#     grep -n 'manifest_decode_multi' terraform/app/workload.tf
+#     grep -n -F '${repliche}' terraform/app/manifests/app.yaml.tftpl
+#   Le stesse cose, a confronto: values.yaml ↔ variables.tf;
+#   release e revision ↔ tfstate; rollback ↔ git revert e apply.
+#   Perché qui va bene così: i segreti e la CA li crea Terraform nello
+#   stesso grafo, senza passarli a Helm.
+#   ESERCIZIO: trasforma app.yaml.tftpl in un chart (${x} → {{ .Values.x }}),
+#   poi confronta l'output di `helm template` con quello che c'è nel cluster.
 
 set -euo pipefail
 CHART=./eco
