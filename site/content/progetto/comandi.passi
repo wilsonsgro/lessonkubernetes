@@ -1,0 +1,20 @@
+titolo "Biodistretto su minikube: i comandi del README"
+nota "Tutti i comandi partono da ~/biodistretto/kubernetes, sul PC del laboratorio. Richiedono docker, minikube, terraform, kubectl e ansible (pipx); Elasticsearch vuole vm.max_map_count >= 262144."
+
+passo "Crea o allinea tutto in un colpo: prerequisiti, cluster, immagini, workload, dati, HAProxy, verifica. Rilanciato senza cambi non tocca niente" \
+  './deploy.sh'
+passo "Un solo pezzo grazie ai tag dei ruoli: ricostruisce le immagini e aggiorna i workload" \
+  './deploy.sh --tags immagini,app'
+passo "Utente e password del sito: sono output di Terraform dello stack app, generati con random_password" \
+  'cd terraform/app && terraform output -raw utente_accesso; echo; terraform output -raw password_accesso; echo'
+passo "I Pod del namespace, con il nodo su cui girano" \
+  'kubectl --context biodistretto -n biodistretto get pods -o wide'
+passo "I log del backend PHP-FPM" \
+  'kubectl --context biodistretto -n biodistretto logs deploy/backend'
+passo "Laravel dentro il Pod: versione, driver, cache" \
+  'kubectl --context biodistretto -n biodistretto exec deploy/backend -- php artisan about'
+passo "Spegne il cluster senza perdere niente: ./deploy.sh lo riaccende" \
+  'minikube -p biodistretto stop'
+nota "Dal Mac: in /etc/hosts la riga «IP-DEL-LAB biodistretto.lab www.biodistretto.lab backend.biodistretto.lab», poi https://www.biodistretto.lab. Per togliere l'avviso del certificato si importa ca-biodistretto.crt fra le CA fidate."
+passo "Toglie HAProxy, i workload e il cluster" \
+  './deploy.sh distruggi'

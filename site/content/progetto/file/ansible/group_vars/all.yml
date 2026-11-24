@@ -1,0 +1,26 @@
+progetto_dir: "{{ playbook_dir | dirname | dirname }}"
+k8s_dir: "{{ progetto_dir }}/kubernetes"
+tf_cluster_dir: "{{ k8s_dir }}/terraform/cluster"
+tf_app_dir: "{{ k8s_dir }}/terraform/app"
+
+nome_cluster: biodistretto
+namespace: biodistretto
+dominio: biodistretto.lab
+kubectl: "kubectl --context {{ nome_cluster }} -n {{ namespace }}"
+
+env_docker: "{{ progetto_dir }}/docker/.env"
+dump_sql: "{{ progetto_dir }}/docker/backup/biodistretto.sql"
+volume_media_docker: docker_minio_biodistretto
+immagine_minio: "wilsonstart/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1"
+
+cache_dir: "{{ k8s_dir }}/.cache"
+tf_tmp_dir: "{{ k8s_dir }}/.cache/tf"
+
+haproxy_immagine: "haproxy:3.2-alpine"
+haproxy_nome: biodistretto-haproxy
+haproxy_dir: "{{ ansible_env.HOME }}/.local/state/biodistretto-haproxy"
+haproxy_porta_stats: 8404
+haproxy_password_stats: "{{ lookup('ansible.builtin.password', cache_dir ~ '/haproxy-stats chars=ascii_letters,digits length=20') }}"
+nodeport_http: 30080
+nodeport_https: 30443
+nodeport_salute: 30081

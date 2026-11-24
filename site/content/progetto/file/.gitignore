@@ -1,0 +1,8 @@
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform.tfstate.lock.info
+ansible/.cache/
+.cache/
+ca-biodistretto.crt

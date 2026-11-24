@@ -1,0 +1,41 @@
+- name: Legge l'APP_KEY dello stack docker
+  ansible.builtin.slurp:
+    src: "{{ env_docker }}"
+  register: env_docker_raw
+  no_log: true
+  failed_when: false
+
+- name: Variabili dello stack docker
+  ansible.builtin.set_fact:
+    env_docker_vars: "{{ dict((env_docker_raw.content | default('') | b64decode).splitlines() | select('match', '^[A-Z_]+=') | map('regex_replace', '^([A-Z_]+)=\"?(.*?)\"?$', '\\1=\\2') | map('split', '=', 1)) }}"
+  no_log: true
+
+- name: Workload su Kubernetes con Terraform
+  block:
+    - name: Applica lo stack dei workload
+      community.general.terraform:
+        project_path: "{{ tf_app_dir }}"
+        state: present
+        force_init: true
+        variables:
+          namespace: "{{ namespace }}"
+          dominio: "{{ dominio }}"
+          immagine_backend: "{{ immagine_backend }}"
+          immagine_frontend: "{{ immagine_frontend }}"
+          nodeport_http: "{{ nodeport_http }}"
+          nodeport_https: "{{ nodeport_https }}"
+          nodeport_salute: "{{ nodeport_salute }}"
+      environment:
+        TF_VAR_app_key: "{{ env_docker_vars.APP_KEY | default('') }}"
+        TMPDIR: "{{ tf_tmp_dir }}"
+      register: tf_app
+  always:
+    - name: Toglie i piani, che contengono lo stato con i segreti
+      ansible.builtin.shell: "find {{ tf_tmp_dir | quote }} -mindepth 1 -delete"
+      changed_when: false
+
+- name: CA del laboratorio per il browser
+  ansible.builtin.copy:
+    content: "{{ tf_app.outputs.ca_pem.value }}"
+    dest: "{{ k8s_dir }}/ca-biodistretto.crt"
+    mode: "0644"

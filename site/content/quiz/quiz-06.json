@@ -1,0 +1,114 @@
+[
+ {
+  "id": "06-1",
+  "domanda": "Un Pod ha la toleration dedicato=batch:NoSchedule. Cosa garantisce?",
+  "opzioni": [
+   "Che il Pod possa andare su quel nodo, senza esserne obbligato",
+   "Che il Pod venga schedulato sul nodo con quel taint",
+   "Che il Pod venga espulso dagli altri nodi",
+   "Che il nodo accetti solo quel Pod"
+  ],
+  "corretta": 0,
+  "spiegazione": "La toleration toglie il divieto ma non crea attrazione: per forzare un Pod su un nodo dedicato servono toleration + nodeAffinity insieme.",
+  "fonte": "4. Il Deployment api — tolerations",
+  "tipo": "didattica"
+ },
+ {
+  "id": "06-2",
+  "domanda": "Si mette il taint dedicato=batch:NoSchedule su lab-m02. Cosa succede ai Pod che ci girano già?",
+  "opzioni": [
+   "Vengono espulsi subito",
+   "Vanno in Pending",
+   "Vengono riavviati sul nodo",
+   "Restano dove sono: NoSchedule riguarda solo le nuove assegnazioni"
+  ],
+  "corretta": 3,
+  "spiegazione": "NoSchedule blocca solo le nuove assegnazioni; per espellere i Pod già presenti serve NoExecute o un drain.",
+  "fonte": "6. Il runner, passo per passo",
+  "tipo": "didattica"
+ },
+ {
+  "id": "06-3",
+  "domanda": "L'HPA mostra TARGETS <unknown>/60%. Qual è una causa tipica?",
+  "opzioni": [
+   "maxReplicas troppo basso",
+   "Il container non ha requests di CPU, oppure metrics-server è assente o appena partito",
+   "Il Deployment ha troppe repliche",
+   "Il behavior di scaleDown è troppo lento"
+  ],
+  "corretta": 1,
+  "spiegazione": "La percentuale di CPU è riferita alle requests: senza requests manca il denominatore. Anche senza metriche da metrics-server l'HPA non decide.",
+  "fonte": "7. Le trappole",
+  "tipo": "didattica"
+ },
+ {
+  "id": "06-4",
+  "domanda": "Nel lab, con 2 repliche e TARGETS 375% (target 60%), quante repliche raggiunge l'HPA e come?",
+  "opzioni": [
+   "8: la formula chiede ceil(2×375/60)=13, maxReplicas taglia a 8 e la policy +100% ogni 15 s fa 2→4→8",
+   "13, subito",
+   "4, perché raddoppia una volta sola",
+   "6, perché ogni 60 s aggiunge 1 Pod"
+  ],
+  "corretta": 0,
+  "spiegazione": "È il fatto misurato nella nota del runner: la formula chiederebbe 13, maxReplicas limita a 8 e behavior.scaleUp impone il raddoppio ogni 15 s.",
+  "fonte": "6. Il runner, passo per passo — Il fatto misurato",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "06-5",
+  "domanda": "Perché il Deployment api non dichiara il campo replicas?",
+  "opzioni": [
+   "Perché il default è 8",
+   "Perché lo StatefulSet lo gestisce al suo posto",
+   "Perché con un HPA ogni apply riporterebbe replicas al valore del file e l'HPA lo rialzerebbe: flapping",
+   "Perché la PriorityClass lo vieta"
+  ],
+  "corretta": 2,
+  "spiegazione": "Con un HPA il numero lo decide lui; è la stessa trappola di Terraform che si contende spec.replicas con l'HPA.",
+  "fonte": "4. Il Deployment api — Niente replicas",
+  "tipo": "didattica"
+ },
+ {
+  "id": "06-6",
+  "domanda": "topologySpreadConstraints con maxSkew 1 su 2 nodi e 8 repliche: come vengono distribuiti i Pod?",
+  "opzioni": [
+   "8 su un nodo solo",
+   "6 e 2",
+   "Restano Pending perché ci sono più repliche che nodi",
+   "4 e 4"
+  ],
+  "corretta": 3,
+  "spiegazione": "maxSkew 1 vuol dire che la differenza tra il dominio più carico e il meno carico non supera 1. A differenza della podAntiAffinity, lo spread funziona anche con più repliche che nodi.",
+  "fonte": "4. Il Deployment api — topologySpreadConstraints",
+  "tipo": "didattica"
+ },
+ {
+  "id": "06-7",
+  "domanda": "Quale autoscaler risponde alla domanda «quanti nodi»?",
+  "opzioni": [
+   "HPA",
+   "Cluster Autoscaler / Karpenter",
+   "VPA",
+   "KEDA"
+  ],
+  "corretta": 1,
+  "spiegazione": "HPA decide le repliche, VPA le risorse per replica, KEDA è un HPA guidato da eventi; Cluster Autoscaler e Karpenter aggiungono nodi quando ci sono Pod Pending per risorse.",
+  "fonte": "1. La teoria nell'intestazione — QUANTI: tre autoscaler",
+  "tipo": "didattica"
+ },
+ {
+  "id": "06-8",
+  "domanda": "Cosa fa una PriorityClass con preemptionPolicy: PreemptLowerPriority quando un Pod non trova posto?",
+  "opzioni": [
+   "Mette il Pod in coda finché si libera spazio",
+   "Aggiunge un nodo al cluster",
+   "Lo scheduler può espellere Pod a priorità più bassa per fargli spazio",
+   "Riduce le requests del Pod"
+  ],
+  "corretta": 2,
+  "spiegazione": "Più alto è value, più il Pod è importante; con PreemptLowerPriority lo scheduler può espellere Pod meno prioritari. L'alternativa è Never.",
+  "fonte": "2. La PriorityClass lab-critico",
+  "tipo": "didattica"
+ }
+]

@@ -1,0 +1,114 @@
+[
+ {
+  "id": "07-1",
+  "domanda": "In quale ordine l'apiserver controlla una richiesta?",
+  "opzioni": [
+   "Admission → Autorizzazione → Autenticazione",
+   "Autorizzazione → Autenticazione → Admission",
+   "Autenticazione → Admission → Autorizzazione",
+   "Autenticazione → Autorizzazione (RBAC) → Admission"
+  ],
+  "corretta": 3,
+  "spiegazione": "Prima chi sei (certificato, OIDC, token del SA), poi puoi farlo (RBAC), poi la risorsa è accettabile (PSA, Kyverno, ValidatingAdmissionPolicy).",
+  "fonte": "1. La teoria nell'intestazione — Tre domande, sempre in quest'ordine",
+  "tipo": "didattica"
+ },
+ {
+  "id": "07-2",
+  "domanda": "`kubectl auth can-i get secrets -n lab-sicuro --as=$SA` risponde no. Cosa NON dimostra?",
+  "opzioni": [
+   "Che il Role deployer non concede get sui secrets",
+   "Che il SA non possa arrivare ai Secret per altre vie, ad esempio creando workload che montano i Secret",
+   "Che il SA esiste",
+   "Che l'impersonation funziona"
+  ],
+  "corretta": 1,
+  "spiegazione": "Chi può creare Pod (o Deployment che creano Pod) può montare un Secret in un Pod suo: negare get secrets non garantisce la riservatezza. Inoltre RBAC è additivo e altri binding possono concedere altro.",
+  "fonte": "1. La teoria nell'intestazione — Verbi che sorprendono",
+  "tipo": "didattica"
+ },
+ {
+  "id": "07-3",
+  "domanda": "Nel lab, che codice di uscita dà `kubectl auth can-i get secrets` quando la risposta è no?",
+  "opzioni": [
+   "1, ed è voluto",
+   "0",
+   "2",
+   "403"
+  ],
+  "corretta": 0,
+  "spiegazione": "can-i esce 1 quando la risposta è no: il runner mostra la riga rossa «uscita 1» ed è un fallimento voluto.",
+  "fonte": "7. Il runner, passo per passo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "07-4",
+  "domanda": "Perché `kubectl auth can-i patch deployments -n lab --as=$SA` risponde no, anche se il Role concede patch sui deployments?",
+  "opzioni": [
+   "Perché patch richiede anche update",
+   "Perché la PSA blocca le patch",
+   "Perché Role e RoleBinding valgono solo nel namespace lab-sicuro",
+   "Perché il SA ha automountServiceAccountToken: false"
+  ],
+  "corretta": 2,
+  "spiegazione": "Il Role e il RoleBinding stanno in lab-sicuro: un RoleBinding vale solo nel suo namespace.",
+  "fonte": "5. Il RoleBinding deployer",
+  "tipo": "didattica"
+ },
+ {
+  "id": "07-5",
+  "domanda": "Nel namespace con PSA enforce restricted, un Deployment viola il profilo. Cosa succede?",
+  "opzioni": [
+   "Il Deployment viene rifiutato dall'apiserver",
+   "I Pod partono con un warning",
+   "La PSA corregge il securityContext in automatico",
+   "Il Deployment viene accettato, ma il ReplicaSet non riesce a creare i Pod"
+  ],
+  "corretta": 3,
+  "spiegazione": "La PSA controlla i Pod: il Deployment è accettato e l'errore emerge sul ReplicaSet. Con warn lo si vede subito all'apply. kubectl run invece crea direttamente un Pod e viene bloccato subito.",
+  "fonte": "2. Il Namespace lab-sicuro e la Pod Security Admission",
+  "tipo": "didattica"
+ },
+ {
+  "id": "07-6",
+  "domanda": "Nel lab, `kubectl -n lab-sicuro run root --image=busybox:1.37 -- sleep 1d` che esito dà?",
+  "opzioni": [
+   "Il Pod parte in Running",
+   "Forbidden: violates PodSecurity \"restricted:latest\", con l'elenco di ciò che manca; il Pod non viene creato",
+   "Il Pod viene creato ma resta Pending",
+   "Il Pod parte ma va in CrashLoopBackOff"
+  ],
+  "corretta": 1,
+  "spiegazione": "Il passo 6 fallisce apposta: il messaggio elenca allowPrivilegeEscalation, capabilities, runAsNonRoot e seccompProfile. Non c'è niente da pulire.",
+  "fonte": "7. Il runner, passo per passo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "07-7",
+  "domanda": "Quale campo del Deployment nginx NON è richiesto dal profilo restricted, ma è buona prassi?",
+  "opzioni": [
+   "runAsNonRoot: true",
+   "capabilities.drop: [ALL]",
+   "readOnlyRootFilesystem: true",
+   "seccompProfile: RuntimeDefault"
+  ],
+  "corretta": 2,
+  "spiegazione": "restricted chiede non-root, niente escalation, capability tolte e seccomp; il filesystem radice read-only è un hardening aggiuntivo, con /tmp su emptyDir.",
+  "fonte": "6. Il Deployment nginx — un Pod che passa restricted",
+  "tipo": "didattica"
+ },
+ {
+  "id": "07-8",
+  "domanda": "Com'è fatto oggi il token di un ServiceAccount?",
+  "opzioni": [
+   "Un token proiettato (BoundServiceAccountToken): JWT con audience e scadenza di 1 h, rinnovato dal kubelet e legato al Pod",
+   "Un Secret di tipo token senza scadenza creato in automatico",
+   "Un certificato client firmato dalla CA del cluster",
+   "Una password in un ConfigMap"
+  ],
+  "corretta": 0,
+  "spiegazione": "I vecchi Secret di tipo token senza scadenza non si creano più in automatico: il token è proiettato, con scadenza, e legato al Pod.",
+  "fonte": "10. La coda: domande da colloquio",
+  "tipo": "didattica"
+ }
+]

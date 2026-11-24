@@ -1,0 +1,397 @@
+[
+ {
+  "lezione": "01",
+  "fronte": "spec contro status: perché un controller è un loop?",
+  "retro": "Tu dichiari la spec (stato desiderato); i controller osservano lo status reale tramite watch sull'apiserver e correggono di continuo la differenza. Nessuno chiama il componente successivo: ognuno reagisce."
+ },
+ {
+  "lezione": "01",
+  "fronte": "Perché etcd con 3 o 5 membri e non 4?",
+  "retro": "Quorum = floor(N/2)+1: con 4 il quorum è 3 e tolleri 1 guasto come con 3, ma le scritture sono più lente. I numeri dispari massimizzano i guasti tollerati."
+ },
+ {
+  "lezione": "01",
+  "fronte": "Se cade l'apiserver, i Pod si fermano?",
+  "retro": "No: i kubelet continuano a far girare ciò che hanno. Si ferma il control plane: niente nuovi scheduling, auto-riparazione o aggiornamento degli endpoint."
+ },
+ {
+  "lezione": "01",
+  "fronte": "Cosa fa un admission controller?",
+  "retro": "Intercetta la richiesta dopo l'autorizzazione e prima di etcd: i mutating la modificano (sidecar, default), i validating la accettano o rifiutano (Pod Security Admission, Kyverno, ValidatingAdmissionPolicy)."
+ },
+ {
+  "lezione": "01",
+  "fronte": "Distingui kube-scheduler, kubelet, kube-proxy e CNI.",
+  "retro": "Lo scheduler sceglie il nodo del Pod; il kubelet avvia i Pod del suo nodo via CRI ed esegue le probe; kube-proxy traduce i Service in regole iptables/IPVS/nftables; il CNI dà l'IP ai Pod e applica le NetworkPolicy."
+ },
+ {
+  "lezione": "02",
+  "fronte": "Deployment e ReplicaSet: che differenza c'è?",
+  "retro": "Il Deployment gestisce ReplicaSet, uno per ogni versione del pod template; il ReplicaSet mantiene i Pod. I ReplicaSet vecchi restano a 0 repliche e sono la storia per rollout undo."
+ },
+ {
+  "lezione": "02",
+  "fronte": "I tre ingredienti dello zero-downtime?",
+  "retro": "readinessProbe (traffico solo ai Pod pronti), maxUnavailable: 0 (non togli capacità prima di aggiungerla) e shutdown pulito con preStop + terminationGracePeriodSeconds."
+ },
+ {
+  "lezione": "02",
+  "fronte": "Il rollout è bloccato a metà: come lo diagnostichi?",
+  "retro": "rollout status (scade con progressDeadlineSeconds), get rs (il nuovo ha Pod non pronti), describe pod del nuovo: ImagePullBackOff, readiness che fallisce, Pending. Con maxUnavailable 0 il vecchio continua a servire; poi rollout undo."
+ },
+ {
+  "lezione": "02",
+  "fronte": "Perché cambiare un ConfigMap non riavvia i Pod?",
+  "retro": "Il ConfigMap non fa parte del pod template, quindi il Deployment non vede differenze. Si usa un'annotazione checksum, un configMapGenerator con hash o kubectl rollout restart."
+ },
+ {
+  "lezione": "02",
+  "fronte": "Exit code 137 contro 143?",
+  "retro": "137 = 128+9 = SIGKILL (OOMKilled o grace period scaduto); 143 = 128+15 = SIGTERM gestito male."
+ },
+ {
+  "lezione": "02",
+  "fronte": "Quando usare la startupProbe?",
+  "retro": "Per le applicazioni con avvio lento: finché non passa, readiness e liveness non partono; il budget è failureThreshold × periodSeconds (qui 30 × 2 s = 60 s)."
+ },
+ {
+  "lezione": "03",
+  "fronte": "Un Service non risponde: ordine dei controlli?",
+  "retro": "1) get endpointslices (vuoti = selector sbagliato o Pod non ready); 2) targetPort giusta; 3) curl su localhost:porta dal Pod; 4) DNS con nslookup; 5) NetworkPolicy che blocca."
+ },
+ {
+  "lezione": "03",
+  "fronte": "Perché ping a un ClusterIP non è un test affidabile?",
+  "retro": "Il ClusterIP non esiste su nessuna interfaccia: è una regola di kube-proxy che fa DNAT verso un Pod. Per questo ping non risponde, curl sì."
+ },
+ {
+  "lezione": "03",
+  "fronte": "Ingress contro Service LoadBalancer?",
+  "retro": "LoadBalancer = un LB L4 (e un IP e un costo) per ogni Service; Ingress = un solo LB L7 per molti Service, con host, path e TLS."
+ },
+ {
+  "lezione": "03",
+  "fronte": "Due elementi in from contro due selector nello stesso elemento?",
+  "retro": "Due elementi = OR (basta una condizione); stesso elemento con namespaceSelector e podSelector = AND (quei Pod dentro quel namespace)."
+ },
+ {
+  "lezione": "03",
+  "fronte": "Se aggiungi un default deny in uscita, cosa devi riaprire?",
+  "retro": "Il DNS: egress verso i Pod kube-dns sulla porta 53 UDP e TCP, altrimenti nessun nome risolve più."
+ },
+ {
+  "lezione": "04",
+  "fronte": "Cosa si aggiorna in un Pod già in esecuzione: env o file montato?",
+  "retro": "Il file montato come volume (al sync del kubelet), se non usa subPath. Le env sono lette all'avvio del container e non si aggiornano mai."
+ },
+ {
+  "lezione": "04",
+  "fronte": "I Secret di Kubernetes sono sicuri?",
+  "retro": "Di default no: base64 in etcd, leggibili da chi ha get sui secret o può creare un Pod nel namespace. Servono cifratura at-rest (KMS), RBAC stretto, niente segreti in env e una fonte esterna con rotazione."
+ },
+ {
+  "lezione": "04",
+  "fronte": "Ho cambiato il ConfigMap ma l'app usa il valore vecchio: perché?",
+  "retro": "Env lette solo all'avvio; volume con subPath mai aggiornato; volume normale aggiornato ma l'app deve rileggerlo. Soluzione robusta: config versionata (hash o checksum) così ogni cambio è un rollout."
+ },
+ {
+  "lezione": "04",
+  "fronte": "Perché subPath cambia il comportamento di un volume ConfigMap?",
+  "retro": "Un file montato con subPath non riceve gli aggiornamenti automatici: serve un rollout, ad esempio via checksum nel template."
+ },
+ {
+  "lezione": "04",
+  "fronte": "Come si gestiscono i segreti in GitOps?",
+  "retro": "Mai Secret in chiaro in git: External Secrets, Sealed Secrets o SOPS. Se una password è già stata committata, si cambia."
+ },
+ {
+  "lezione": "05",
+  "fronte": "Cosa resta stabile quando elimini un Pod di uno StatefulSet?",
+  "retro": "Il nome (db-0), il record DNS tramite il Service headless e il PVC (dati-db-0), che il nuovo Pod riusa."
+ },
+ {
+  "lezione": "05",
+  "fronte": "Database su Kubernetes: sì o no?",
+  "retro": "Si può con un operator maturo (CloudNativePG, Percona, Strimzi) che gestisce failover, backup e upgrade: lo StatefulSet da solo dà identità e disco, non replica né failover. Con un team piccolo spesso si sceglie il gestito del cloud."
+ },
+ {
+  "lezione": "05",
+  "fronte": "Un nodo muore: cosa succede al Pod db-1?",
+  "retro": "Il nodo va NotReady; dopo il timeout di eviction il Pod resta Terminating e lo StatefulSet non crea un nuovo db-1 finché non è sicuro che il vecchio sia morto (garanzia al più uno). Serve cancellare il nodo o il taint node.kubernetes.io/out-of-service."
+ },
+ {
+  "lezione": "05",
+  "fronte": "Come allarghi un PVC di uno StatefulSet?",
+  "retro": "Con allowVolumeExpansion: true sulla StorageClass modifichi resources.requests.storage di ogni PVC; volumeClaimTemplates è immutabile, quindi ricrei lo StatefulSet con --cascade=orphan."
+ },
+ {
+  "lezione": "05",
+  "fronte": "Perché un PDB può bloccare un drain?",
+  "retro": "Il drain usa l'eviction API, che rispetta il PDB: se non ci sono disruption permesse il drain aspetta e riprova; con minAvailable = repliche si blocca per sempre."
+ },
+ {
+  "lezione": "06",
+  "fronte": "Che differenza c'è fra taint e toleration?",
+  "retro": "Il taint sta sul nodo e respinge i Pod che non lo tollerano; la toleration sta sul Pod e toglie il divieto, ma non attrae il Pod sul nodo: per forzarlo serve anche nodeAffinity."
+ },
+ {
+  "lezione": "06",
+  "fronte": "Un Pod è Pending: cause possibili?",
+  "retro": "describe pod → FailedScheduling: Insufficient cpu, didn't tolerate taint, didn't match node affinity, unbound PersistentVolumeClaim, vincolo di spread DoNotSchedule."
+ },
+ {
+  "lezione": "06",
+  "fronte": "Perché l'HPA usa la request CPU e non il limit?",
+  "retro": "La percentuale di utilizzo è riferita alle requests: sono il denominatore della formula ceil(attuali × valore / target). Senza requests l'HPA mostra <unknown>."
+ },
+ {
+  "lezione": "06",
+  "fronte": "topologySpreadConstraints o podAntiAffinity?",
+  "retro": "L'anti-affinity dice sì/no «non insieme» e non scala oltre una replica per nodo; lo spread distribuisce con skew massimo N, funziona con più repliche che nodi ed è più leggero."
+ },
+ {
+  "lezione": "06",
+  "fronte": "Come dimensioni requests e limits?",
+  "retro": "Dai dati: p95 dell'uso reale (Prometheus, VPA in modo Off come raccomandatore) per le requests, con margine per i picchi. Troppo basse = sfratti; troppo alte = cluster pagato e vuoto."
+ },
+ {
+  "lezione": "06",
+  "fronte": "Cosa succede se l'HPA vuole 8 Pod ma nessun nodo ha spazio?",
+  "retro": "L'HPA chiede repliche ma non garantisce che siano schedulabili: i Pod restano Pending finché un Cluster Autoscaler/Karpenter non aggiunge nodi."
+ },
+ {
+  "lezione": "07",
+  "fronte": "Differenza tra RoleBinding e ClusterRoleBinding?",
+  "retro": "Il RoleBinding assegna permessi in un solo namespace (anche da un ClusterRole, così si riusano view/edit); il ClusterRoleBinding lega un ClusterRole a livello di tutto il cluster."
+ },
+ {
+  "lezione": "07",
+  "fronte": "Perché view non include i secrets ed edit sì?",
+  "retro": "Leggere un secret è un'escalation (token, password). edit include la creazione di Pod, che dà comunque accesso ai secret: edit ≈ chi può leggere i secret del namespace."
+ },
+ {
+  "lezione": "07",
+  "fronte": "Un Pod è rifiutato con «violates PodSecurity restricted»: che fai?",
+  "retro": "Il messaggio elenca i campi (allowPrivilegeEscalation, capabilities, runAsNonRoot, seccompProfile): si corregge il securityContext. Per migrare un namespace prima warn/audit, poi enforce."
+ },
+ {
+  "lezione": "07",
+  "fronte": "I tre modi della Pod Security Admission?",
+  "retro": "enforce rifiuta i Pod che violano il profilo, audit li accetta annotando la violazione nel log di audit, warn li accetta e avvisa il client."
+ },
+ {
+  "lezione": "07",
+  "fronte": "Perché create pods è un permesso pericoloso?",
+  "retro": "Chi crea Pod in un namespace può montarci qualunque secret o token di SA del namespace: create pods ≈ leggere i secret."
+ },
+ {
+  "lezione": "08",
+  "fronte": "CrashLoopBackOff ma kubectl logs è vuoto: cosa cerchi?",
+  "retro": "Prova --previous; se è vuoto il processo muore prima di scrivere: comando o entrypoint sbagliato, binario di un'altra architettura (exec format error), permessi, readOnlyRootFilesystem. describe mostra exit code e reason."
+ },
+ {
+  "lezione": "08",
+  "fronte": "L'app risponde da dentro il Pod ma non dal Service: perché?",
+  "retro": "EndpointSlice vuoti (selector o readiness), targetPort sbagliata, app in ascolto su 127.0.0.1 invece di 0.0.0.0, NetworkPolicy."
+ },
+ {
+  "lezione": "08",
+  "fronte": "Il nodo è NotReady: cause?",
+  "retro": "kubelet fermo, disco pieno (DiskPressure), memoria, CNI rotto, certificati scaduti. describe node → Conditions; sul nodo journalctl -u kubelet."
+ },
+ {
+  "lezione": "08",
+  "fronte": "Cosa distingue un Pod Pending da uno ImagePullBackOff?",
+  "retro": "Pending = lo scheduler non trova un nodo (risorse, taint, affinity, PVC); ImagePullBackOff = il Pod ha un nodo ma il kubelet non riesce a scaricare l'immagine (tag sbagliato, registry privato, rate limit). Entrambi si leggono con describe."
+ },
+ {
+  "lezione": "08",
+  "fronte": "Quanto durano gli eventi di Kubernetes?",
+  "retro": "Un'ora: per lo storico servono log e metriche centralizzati."
+ },
+ {
+  "lezione": "09",
+  "fronte": "Dove salva Helm lo stato? Cosa succede se cancelli quel Secret?",
+  "retro": "Un Secret per revision (tipo helm.sh/release.v1) nel namespace della release. Cancellandoli Helm dimentica la release ma gli oggetti restano: un install successivo fallisce per conflitto di ownership (o serve --take-ownership)."
+ },
+ {
+  "lezione": "09",
+  "fronte": "Come rivedi cosa cambierà prima di un upgrade?",
+  "retro": "helm template + diff in PR, il plugin helm-diff (helm diff upgrade) oppure --dry-run=server, che passa anche dall'admission del cluster."
+ },
+ {
+  "lezione": "09",
+  "fronte": "Differenza fra version e appVersion in Chart.yaml?",
+  "retro": "version è la versione del chart (SemVer, cambia a ogni modifica del chart); appVersion quella dell'applicazione, qui il tag di default dell'immagine. La revision è invece il contatore della release."
+ },
+ {
+  "lezione": "09",
+  "fronte": "include contro template in un chart Helm?",
+  "retro": "include restituisce una stringa e quindi si può mettere in pipe (| nindent); template no."
+ },
+ {
+  "lezione": "09",
+  "fronte": "Perché helm template è utile nelle PR?",
+  "retro": "Rende i manifest in locale, senza cluster: si vede e si confronta lo YAML che finirebbe nell'apply e si scoprono i bug di indentazione. Non sostituisce però il controllo di admission del cluster."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Che cos'è HAProxy? Definisci frontend, backend e server.",
+  "retro": "Un reverse proxy e load balancer TCP/HTTP. Il frontend riceve le connessioni e applica le regole; il backend è un gruppo di destinazioni con un algoritmo; il server è una destinazione concreta IP:porta."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Un Ingress controller manda il traffico al ClusterIP?",
+  "retro": "Di solito no: HAProxy e ingress-nginx leggono gli EndpointSlice e parlano con gli IP dei Pod; il Service fa da indice."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Scalo da 3 a 6 repliche: HAProxy si ricarica?",
+  "retro": "No: il controller usa add server sulla Runtime API. Si ricarica solo per un cambio di struttura (backend nuovo, annotazione nuova)."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Rate limit con più repliche del controller: è esatto?",
+  "retro": "No: ogni replica ha la sua stick-table e il limite si moltiplica per le repliche raggiunte. Per un limite globale servono i peers fra le repliche o un limite a monte."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Perché due IngressClass nello stesso cluster?",
+  "retro": "Per avere due controller (uno pubblico e uno interno, o nginx e HAProxy durante una migrazione): ogni Ingress sceglie il suo con ingressClassName."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Cosa succede alle connessioni esistenti quando una replica HAProxy muore?",
+  "retro": "Le connessioni già attive su quella replica possono interrompersi: le repliche non condividono stato. Le nuove connessioni vanno alla replica rimasta Ready dopo la propagazione."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Terminazione, ri-cifratura, passthrough: chi decifra e cosa vede HAProxy?",
+  "retro": "Terminazione e ri-cifratura: HAProxy decifra e vede host, path, header (routing L7). Passthrough: non decifra, vede solo lo SNI, la chiave resta sui server."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Perché path_beg /api/ funziona in fe_https e non in fe_passthrough?",
+  "retro": "In fe_https il traffico è stato decifrato (bind :443 ssl crt …); in passthrough il path è dentro la richiesta HTTP ancora cifrata."
+ },
+ {
+  "lezione": "21",
+  "fronte": "use_backend be_api if host_negozio percorso_api: AND o OR?",
+  "retro": "AND: due ACL sulla stessa riga devono essere vere entrambe. Le regole si valutano in ordine; default_backend se nessuna scatta."
+ },
+ {
+  "lezione": "21",
+  "fronte": "ssl verify none contro verify required ca-file …",
+  "retro": "verify none cifra ma non autentica il server (MITM possibile nella rete interna); verify required controlla il certificato con la CA interna."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Prima di systemctl reload haproxy?",
+  "retro": "haproxy -c -f /etc/haproxy/haproxy.cfg: un errore di sintassi in produzione è un servizio che non riparte."
+ },
+ {
+  "lezione": "22",
+  "fronte": "Il ciclo di Terraform in sei comandi?",
+  "retro": "init → fmt → validate → plan -out=piano.tfplan → apply piano.tfplan → destroy. Il piano salvato viene eseguito tale e quale."
+ },
+ {
+  "lezione": "22",
+  "fronte": "Che cosa c'è nello state e dove sta?",
+  "retro": "La mappa indirizzo del codice ↔ ID reale, più gli attributi (anche i segreti in chiaro). Mai in git: backend remoto con lock, cifrato e versionato."
+ },
+ {
+  "lezione": "22",
+  "fronte": "+ ~ -/+ - nel plan?",
+  "retro": "Crea, modifica sul posto, ricrea (attributo ForceNew, # forces replacement), distrugge."
+ },
+ {
+  "lezione": "22",
+  "fronte": "Drift: plan, -refresh-only, -replace?",
+  "retro": "plan mostra la differenza; -refresh-only accetta la realtà nello state senza toccare le risorse; -replace ricrea la risorsa."
+ },
+ {
+  "lezione": "22",
+  "fronte": "count o for_each?",
+  "retro": "for_each per ciò che ha un'identità (indice = chiave); count solo per 0/1 o copie anonime, perché togliere un elemento in mezzo fa scalare gli indici."
+ },
+ {
+  "lezione": "22",
+  "fronte": "import, moved, removed?",
+  "retro": "import adotta una risorsa esistente; moved rinomina senza distruggere; removed toglie dal codice senza distruggere (lifecycle destroy = false)."
+ },
+ {
+  "lezione": "22",
+  "fronte": "Perché i moduli non puntano a un branch?",
+  "retro": "Un merge cambierebbe i plan di tutti i progetti insieme: tag SemVer o registry, adottati uno per uno."
+ },
+ {
+  "lezione": "22",
+  "fronte": "terraform plan -detailed-exitcode?",
+  "retro": "0 nessun cambiamento, 1 errore, 2 ci sono cambiamenti: il drift notturno diventa un job rosso."
+ },
+ {
+  "lezione": "23",
+  "fronte": "Che cosa serve su un nodo perché Ansible lo gestisca?",
+  "retro": "Python e un utente con sudo, raggiungibili via SSH (nel laboratorio: il plugin community.docker.docker). Niente agenti né certificati: agentless e push."
+ },
+ {
+  "lezione": "23",
+  "fronte": "Perché un modulo invece di shell: apt-get install nginx?",
+  "retro": "Il modulo descrive uno stato e cambia solo se serve (changed=0 al secondo giro), supporta check e diff. shell è sempre CHANGED finché non dichiari creates, removes o changed_when."
+ },
+ {
+  "lezione": "23",
+  "fronte": "La precedenza delle variabili di Ansible, in breve?",
+  "retro": "defaults del ruolo < group_vars/all < group_vars/gruppo < host_vars < vars del play < vars del ruolo < set_fact/register < -e."
+ },
+ {
+  "lezione": "23",
+  "fronte": "Quando gira un handler?",
+  "retro": "Una volta sola a fine play, e solo se un task changed lo ha notificato con lo stesso nome (o con listen). --force-handlers o meta: flush_handlers per cambiare il momento."
+ },
+ {
+  "lezione": "23",
+  "fronte": "defaults/ o vars/ per i parametri di un ruolo?",
+  "retro": "defaults/: priorità minima, è l'interfaccia che l'utente sovrascrive. In vars/ (priorità alta) un group_vars non riesce più a cambiarlo."
+ },
+ {
+  "lezione": "23",
+  "fronte": "Come tieni una password in git con Ansible?",
+  "retro": "ansible-vault encrypt_string (o un file cifrato), password da file 0600 o dalla CI; vault_db_password cifrato e alias in chiaro; no_log sui task che la usano."
+ },
+ {
+  "lezione": "23",
+  "fronte": "Rolling update con Ansible senza downtime?",
+  "retro": "serial a lotti; pre_tasks drain con delegate_to; aggiornamento; verifica uri + until/retries; post_tasks che rimettono l'host. max_fail_percentage per fermarsi. Chi fallisce resta fuori."
+ },
+ {
+  "lezione": "23",
+  "fronte": "Terraform + Ansible: chi fa cosa?",
+  "retro": "Terraform crea i nodi e scrive l'inventario (local_file + templatefile) con gli IP che solo lui conosce; Ansible lo legge e configura dentro il sistema operativo."
+ },
+ {
+  "lezione": "24",
+  "fronte": "Biodistretto: chi è il regista?",
+  "retro": "Ansible. deploy.sh lancia site.yml; i ruoli cluster e app chiamano Terraform con community.general.terraform e ne leggono gli output."
+ },
+ {
+  "lezione": "24",
+  "fronte": "Biodistretto: perché due stack Terraform?",
+  "retro": "cluster (minikube, nodi, CNI) si crea una volta; app (Secret, CA, workload) cambia spesso. Ognuno ha il suo state."
+ },
+ {
+  "lezione": "24",
+  "fronte": "HAProxy → nginx: come arriva l'IP del client?",
+  "retro": "send-proxy-v2 su HAProxy, listen … proxy_protocol e real_ip_header proxy_protocol su nginx; externalTrafficPolicy: Local evita il SNAT."
+ },
+ {
+  "lezione": "24",
+  "fronte": "Perché un NodePort a parte per la salute (30081)?",
+  "retro": "nginx risponde ok su /healthz: con externalTrafficPolicy Local un nodo senza Pod di nginx fallisce il controllo e HAProxy lo toglie."
+ },
+ {
+  "lezione": "24",
+  "fronte": "Biodistretto dopo un riavvio del PC?",
+  "retro": "Non basta rialzare i container dei nodi: serve minikube start (kubelet, cri-docker). Il ruolo cluster mette un @reboot nel crontab."
+ }
+]

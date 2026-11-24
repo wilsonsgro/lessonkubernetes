@@ -1,0 +1,114 @@
+[
+ {
+  "id": "03-1",
+  "domanda": "Il Service web esiste ma il suo EndpointSlice è vuoto. Quali sono le cause tipiche?",
+  "opzioni": [
+   "Il ClusterIP non risponde al ping",
+   "Manca l'Ingress davanti al Service",
+   "kube-proxy non ha ancora assegnato un IP al Service",
+   "Selector che non combacia con le label del pod template, oppure Pod non ready"
+  ],
+  "corretta": 3,
+  "spiegazione": "L'EndpointSlice contiene solo i Pod pronti scelti dal selector: un selector sbagliato o una readiness non soddisfatta lo lasciano vuoto. Il ping a un ClusterIP non risponde comunque e l'Ingress non c'entra.",
+  "fonte": "5. Il runner, passo per passo",
+  "tipo": "didattica"
+ },
+ {
+  "id": "03-2",
+  "domanda": "Nella NetworkPolicy web-allow, quale porta va indicata in `ports`?",
+  "opzioni": [
+   "80, la porta del Service",
+   "La porta del Pod (http, cioè 8080), perché la policy vede il traffico dopo il DNAT",
+   "Entrambe, 80 e 8080",
+   "Nessuna: le policy lavorano solo per label"
+  ],
+  "corretta": 1,
+  "spiegazione": "La policy agisce a livello Pod, dopo il DNAT di kube-proxy: la porta è la targetPort 8080. Mettere 80 blocca il traffico.",
+  "fonte": "4. Le NetworkPolicy — Policy 2 web-allow",
+  "tipo": "didattica"
+ },
+ {
+  "id": "03-3",
+  "domanda": "Nel `from` di una NetworkPolicy, un elemento contiene sia namespaceSelector sia podSelector. Come vengono combinati?",
+  "opzioni": [
+   "In OR: basta una delle due condizioni",
+   "L'apiserver rifiuta la policy",
+   "In AND: quei Pod dentro quel namespace",
+   "Vale solo il namespaceSelector"
+  ],
+  "corretta": 2,
+  "spiegazione": "Stesso elemento = AND; due elementi distinti nella lista = OR. Un trattino in più o in meno cambia chi entra e l'apply non dà errori in nessuno dei due casi.",
+  "fonte": "4. Le NetworkPolicy — La trappola dell'indentazione",
+  "tipo": "didattica"
+ },
+ {
+  "id": "03-4",
+  "domanda": "Si applica una NetworkPolicy di default deny con un CNI che non supporta le NetworkPolicy. Cosa succede?",
+  "opzioni": [
+   "L'apply riesce e non succede niente: il traffico non viene bloccato",
+   "L'apply fallisce con un errore di validazione",
+   "kube-proxy applica la policy al posto del CNI",
+   "Tutto il traffico del namespace viene bloccato"
+  ],
+  "corretta": 0,
+  "spiegazione": "Le NetworkPolicy le applica il CNI: senza supporto l'oggetto viene accettato ma non blocca nulla. Per questo il lab usa Calico e si prova sempre con un Pod intruso.",
+  "fonte": "6. Le trappole",
+  "tipo": "didattica"
+ },
+ {
+  "id": "03-5",
+  "domanda": "Nel lab, il Pod intruso senza label ruolo=client esegue `curl -s -m 3 web/api; echo uscita=$?`. Che cosa stampa?",
+  "opzioni": [
+   "uscita=0 con la risposta JSON",
+   "uscita=7 (connessione rifiutata)",
+   "uscita=6 (host non risolto)",
+   "uscita=28, il codice di timeout di curl"
+  ],
+  "corretta": 3,
+  "spiegazione": "Il passo 5 fallisce apposta: la policy scarta il traffico, dopo 3 s curl si arrende e stampa uscita=28. Il riquadro rosso non compare perché l'ultimo comando è echo, che esce 0.",
+  "fonte": "5. Il runner, passo per passo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "03-6",
+  "domanda": "Perché web-allow contiene anche un ramo namespaceSelector su ingress-nginx?",
+  "opzioni": [
+   "Perché gli Ingress richiedono un namespace dedicato",
+   "Perché il controller Ingress è un Pod in un altro namespace e il default deny lo bloccherebbe",
+   "Per permettere il DNS verso kube-dns",
+   "Per consentire l'egress verso Internet"
+  ],
+  "corretta": 1,
+  "spiegazione": "Senza quel ramo l'Ingress smette di rispondere: il controller ingress-nginx vive nel suo namespace e il default deny ingress chiude tutti i Pod di lab.",
+  "fonte": "4. Le NetworkPolicy — Policy 2 web-allow",
+  "tipo": "didattica"
+ },
+ {
+  "id": "03-7",
+  "domanda": "Qual è la differenza fra Ingress e Ingress Controller?",
+  "opzioni": [
+   "L'Ingress è un insieme di regole L7 (host, path, TLS) che da solo non fa niente; il controller (ingress-nginx, Traefik, HAProxy) le esegue",
+   "Nessuna: sono due nomi dello stesso oggetto",
+   "L'Ingress Controller è un tipo di Service LoadBalancer",
+   "L'Ingress lavora a L4, il controller a L7"
+  ],
+  "corretta": 0,
+  "spiegazione": "L'Ingress dichiara regole; serve un controller scelto con ingressClassName che le esegua. Nel lab è l'addon ingress di minikube.",
+  "fonte": "3. L'Ingress web",
+  "tipo": "didattica"
+ },
+ {
+  "id": "03-8",
+  "domanda": "Con externalTrafficPolicy: Cluster (default), quale IP sorgente vede il Pod?",
+  "opzioni": [
+   "L'IP del client originale",
+   "Il ClusterIP del Service",
+   "L'IP del nodo, per via dello SNAT",
+   "L'IP del controller Ingress"
+  ],
+  "corretta": 2,
+  "spiegazione": "Con Cluster ogni nodo inoltra a qualunque Pod con SNAT, quindi il Pod vede l'IP del nodo. Local preserva l'IP del client ma inoltra solo ai Pod del nodo.",
+  "fonte": "7. La coda: domande da colloquio",
+  "tipo": "didattica"
+ }
+]

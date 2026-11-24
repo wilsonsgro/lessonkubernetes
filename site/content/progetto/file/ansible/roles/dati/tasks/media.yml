@@ -1,0 +1,67 @@
+- name: Credenziali del MinIO nel cluster
+  ansible.builtin.command: >-
+    {{ kubectl }} get secret minio -o jsonpath='{.data.MINIO_ROOT_USER} {.data.MINIO_ROOT_PASSWORD}'
+  register: minio_k8s
+  changed_when: false
+  no_log: true
+
+- name: Copia dei media
+  block:
+    - name: Copia del volume docker, per non toccare l'originale
+      community.docker.docker_volume:
+        name: biodistretto-media-export
+
+    - name: Riempie la copia
+      ansible.builtin.command: >-
+        docker run --rm -v {{ volume_media_docker }}:/src:ro -v biodistretto-media-export:/dst alpine
+        sh -c 'cp -a /src/. /dst/'
+
+    - name: MinIO temporaneo sulla copia
+      community.docker.docker_container:
+        name: biodistretto-media-export
+        image: "{{ immagine_minio }}"
+        command: server /data
+        volumes:
+          - biodistretto-media-export:/data
+        env:
+          MINIO_ROOT_USER: "{{ env_docker_vars.MINIO_ROOT_USER | default('minioadmin') }}"
+          MINIO_ROOT_PASSWORD: "{{ env_docker_vars.MINIO_ROOT_PASSWORD | default('minioadmin') }}"
+      no_log: true
+
+    - name: Specchia il bucket vecchio in quello del cluster
+      ansible.builtin.shell: |
+        set -eu
+        {{ kubectl }} port-forward svc/minio 19000:9000 > /dev/null 2>&1 &
+        pf=$!
+        trap 'kill $pf' EXIT
+        for i in $(seq 30); do curl -sf http://127.0.0.1:19000/minio/health/ready > /dev/null && break; sleep 1; done
+        ip=$(docker inspect -f '{% raw %}{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}{% endraw %}' biodistretto-media-export)
+        for i in $(seq 30); do curl -sf "http://$ip:9000/minio/health/ready" > /dev/null && break; sleep 1; done
+        docker run --rm --network host -e VU -e VP -e NU -e NP -e IP_VECCHIO="$ip" --entrypoint sh {{ immagine_minio }} -c '
+          mc alias set vecchio "http://$IP_VECCHIO:9000" "$VU" "$VP" >/dev/null &&
+          mc alias set nuovo http://127.0.0.1:19000 "$NU" "$NP" >/dev/null &&
+          mc mirror --quiet vecchio/biodistretto nuovo/biodistretto &&
+          mc ls --recursive nuovo/biodistretto | wc -l'
+      args:
+        executable: /bin/bash
+      environment:
+        VU: "{{ env_docker_vars.MINIO_ROOT_USER | default('minioadmin') }}"
+        VP: "{{ env_docker_vars.MINIO_ROOT_PASSWORD | default('minioadmin') }}"
+        NU: "{{ minio_k8s.stdout.split(' ')[0] | b64decode }}"
+        NP: "{{ minio_k8s.stdout.split(' ')[1] | b64decode }}"
+      register: specchio
+
+    - name: Oggetti copiati
+      ansible.builtin.debug:
+        msg: "oggetti nel bucket del cluster: {{ specchio.stdout_lines | last }}"
+
+  always:
+    - name: Toglie il MinIO temporaneo
+      community.docker.docker_container:
+        name: biodistretto-media-export
+        state: absent
+
+    - name: Toglie la copia del volume
+      community.docker.docker_volume:
+        name: biodistretto-media-export
+        state: absent

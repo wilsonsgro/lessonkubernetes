@@ -1,0 +1,114 @@
+[
+ {
+  "id": "09-1",
+  "domanda": "Qual è la differenza fra Chart e Release?",
+  "opzioni": [
+   "Il Chart è il pacchetto di template, valori e metadati; la Release è un'installazione del Chart con un nome e una storia numerata",
+   "Sono lo stesso oggetto con due nomi",
+   "La Release è il file Chart.yaml",
+   "Il Chart è salvato nel cluster, la Release solo in locale"
+  ],
+  "corretta": 0,
+  "spiegazione": "Un Chart può essere installato più volte come Release diverse; la storia delle revision è salvata nel cluster come Secret helm.sh/release.v1.",
+  "fonte": "1. La teoria nell'intestazione — I tre problemi che kubectl apply non risolve",
+  "tipo": "didattica"
+ },
+ {
+  "id": "09-2",
+  "domanda": "Nel guidato, `helm template prova eco --set replicaCount=0` che esito ha?",
+  "opzioni": [
+   "Rende un Deployment con 0 repliche",
+   "Fallisce solo all'install, per l'admission del cluster",
+   "Fallisce apposta: values.schema.json rifiuta replicaCount=0 (minimo 1) prima del rendering",
+   "Avvisa con un warning e prosegue"
+  ],
+  "corretta": 2,
+  "spiegazione": "Lo schema JSON blocca il valore prima di toccare il cluster; il guidato mostra l'uscita ≠ 0 in rosso, ed è voluto.",
+  "fonte": "3. Il percorso del guidato, passo per passo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "09-3",
+  "domanda": "Dopo revision 1 e 2, un upgrade con image.tag=v9.9.9 e --rollback-on-failure fallisce. Cosa mostra `helm history`?",
+  "opzioni": [
+   "Solo le revision 1 e 2",
+   "Revision 3 deployed con l'immagine v9.9.9",
+   "Revision 3 pending-upgrade",
+   "Revision 3 failed e revision 4 = rollback automatico alla 2"
+  ],
+  "corretta": 3,
+  "spiegazione": "Al passo 12 del guidato: l'immagine non esiste, dopo 60 s Helm dichiara il fallimento e torna da solo alla versione buona creando la revision 4.",
+  "fonte": "3. Il percorso del guidato, passo per passo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "09-4",
+  "domanda": "Cosa fa `helm rollback eco 1` sulla storia della release?",
+  "opzioni": [
+   "Cancella tutte le revision successive alla 1",
+   "Aggiunge una revision nuova con il contenuto della 1, senza cancellare la storia",
+   "Reinstalla da zero la release",
+   "Riporta il contatore delle revision a 1"
+  ],
+  "corretta": 1,
+  "spiegazione": "Un rollback non cancella la storia: aggiunge una revision. Ogni revision è un Secret owner=helm nel namespace della release.",
+  "fonte": "3. Il percorso del guidato, passo per passo",
+  "tipo": "didattica"
+ },
+ {
+  "id": "09-5",
+  "domanda": "Perché nel chart eco cambiare config.messaggio con un helm upgrade fa ripartire i Pod?",
+  "opzioni": [
+   "Perché Helm cancella e ricrea sempre i Pod",
+   "Perché il kubelet rilegge la ConfigMap",
+   "Perché il template mette nel Pod un'annotazione checksum/config calcolata sulla ConfigMap renderizzata: cambia il template e parte il rollout",
+   "Perché --reuse-values forza il restart"
+  ],
+  "corretta": 2,
+  "spiegazione": "Cambia la ConfigMap → cambia il checksum → nuovo pod template → rollout. Un patch diretto della ConfigMap invece non aggiorna l'annotazione.",
+  "fonte": "Spiegazione e riflessioni ragionate — La riflessione chiave dalle lezioni 02 e 04",
+  "tipo": "didattica"
+ },
+ {
+  "id": "09-6",
+  "domanda": "Quale trappola ha --reuse-values?",
+  "opzioni": [
+   "Ignora i nuovi default che il chart aggiornato introduce; --reset-then-reuse-values li unisce correttamente",
+   "Cancella i valori dell'utente",
+   "Non funziona con --wait",
+   "Funziona solo con helm template"
+  ],
+  "corretta": 0,
+  "spiegazione": "--reuse-values riusa i valori della release precedente, quindi un valore nuovo con default nel chart non arriva.",
+  "fonte": "4. Le trappole",
+  "tipo": "didattica"
+ },
+ {
+  "id": "09-7",
+  "domanda": "Qual è la precedenza dei valori in Helm (l'ultimo vince)?",
+  "opzioni": [
+   "--set < -f file < values.yaml del chart",
+   "-f file2 < -f file1 < --set < values.yaml",
+   "values del chart padre < values.yaml del chart < --set < -f",
+   "values.yaml del chart < values del chart padre < -f file1 < -f file2 < --set"
+  ],
+  "corretta": 3,
+  "spiegazione": "I default del chart sono sovrascritti dal chart padre, poi dai file -f nell'ordine dato e infine da --set.",
+  "fonte": "5. La coda: template e precedenza dei valori",
+  "tipo": "didattica"
+ },
+ {
+  "id": "09-8",
+  "domanda": "Un upgrade è rimasto in pending-upgrade e ogni nuovo upgrade fallisce. Cosa si fa?",
+  "opzioni": [
+   "Si cancellano i Secret owner=helm",
+   "helm history per vedere lo stato e helm rollback all'ultima revision deployed",
+   "Si aspetta che Helm si sblocchi da solo",
+   "Si rilancia con --force-replace"
+  ],
+  "corretta": 1,
+  "spiegazione": "Un processo Helm è morto a metà. Se fosse pending-install non ci sarebbe una revision a cui tornare: helm uninstall e reinstallazione. Per prevenirlo: --rollback-on-failure e timeout in CI.",
+  "fonte": "6. Comandi e domande da colloquio",
+  "tipo": "didattica"
+ }
+]

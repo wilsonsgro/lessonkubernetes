@@ -1,0 +1,114 @@
+[
+ {
+  "id": "23-1",
+  "domanda": "Lanci due volte «ansible web -m ansible.builtin.apt -a \"name=tree state=present\"». Che cosa vedi la seconda volta?",
+  "opzioni": [
+   "CHANGED di nuovo: apt reinstalla sempre",
+   "Verde, changed: false: il pacchetto c'è già e il modulo non fa niente",
+   "Un errore: il pacchetto è già installato",
+   "Lo stesso output della prima volta, perché Ansible non tiene uno state"
+  ],
+  "corretta": 1,
+  "spiegazione": "Un modulo descrive uno stato («presente») e cambia solo se serve: è l'idempotenza, il concetto chiave di Ansible.",
+  "fonte": "terraform/06-ansible-inventario-adhoc.md — passi 9 e 10",
+  "tipo": "didattica"
+ },
+ {
+  "id": "23-2",
+  "domanda": "Perché «ansible db -m ansible.builtin.command -a uptime» risulta sempre CHANGED?",
+  "opzioni": [
+   "Perché uptime cambia ogni secondo",
+   "Perché Ansible non sa che cosa fa un comando: senza creates, removes o changed_when lo considera sempre un cambiamento",
+   "Perché db1 non ha Python",
+   "Perché command gira senza become"
+  ],
+  "corretta": 1,
+  "spiegazione": "command e shell non sono idempotenti da soli: l'idempotenza la dichiari tu. Un comando di sola lettura vuole changed_when: false.",
+  "fonte": "terraform/06-ansible-inventario-adhoc.md — passo 11 e trappole",
+  "tipo": "didattica"
+ },
+ {
+  "id": "23-3",
+  "domanda": "porta_http vale 80 nell'inventario (gruppo web) e la passi anche con -e porta_http=8080. Quale valore usa il task?",
+  "opzioni": [
+   "80: l'inventario è più specifico",
+   "8080: le extra vars (-e) hanno la priorità massima",
+   "Dipende dall'ordine dei gruppi",
+   "Nessuno: Ansible si ferma per il conflitto"
+  ],
+  "corretta": 1,
+  "spiegazione": "Nella scala della precedenza -e sta in cima, i defaults del ruolo in fondo; group_vars e host_vars stanno in mezzo.",
+  "fonte": "terraform/06-ansible-inventario-adhoc.md — precedenza",
+  "tipo": "didattica"
+ },
+ {
+  "id": "23-4",
+  "domanda": "Cambi solo la variabile messaggio della pagina e rilanci il playbook della parte 07. L'handler «Ricarica nginx» parte?",
+  "opzioni": [
+   "Sì: ogni file cambiato ricarica nginx",
+   "No: il notify sta sul task della config di nginx, che non dipende da messaggio e quindi non è changed",
+   "Sì, ma solo con --force-handlers",
+   "No: gli handler girano solo con --tags config"
+  ],
+  "corretta": 1,
+  "spiegazione": "Un handler parte solo se il task che lo notifica è changed. La pagina cambia, la config no: niente reload.",
+  "fonte": "terraform/07-ansible-playbook.sh — passo 6",
+  "tipo": "didattica"
+ },
+ {
+  "id": "23-5",
+  "domanda": "Che cosa fa validate: nel task che scrive la config di nginx?",
+  "opzioni": [
+   "Controlla la sintassi YAML del playbook",
+   "Scrive il file nuovo in un temporaneo, lo prova con nginx -t e lo installa solo se è valido: una config rotta non arriva sul server",
+   "Ricarica nginx e torna indietro se fallisce",
+   "Confronta il file con quello in git"
+  ],
+  "corretta": 1,
+  "spiegazione": "Con una porta non valida il task fallisce e il file sul server resta quello di prima. Lo stesso schema vale per visudo -cf e sshd -t.",
+  "fonte": "terraform/07-ansible-playbook.md — validate",
+  "tipo": "didattica"
+ },
+ {
+  "id": "23-6",
+  "domanda": "ansible-playbook sito.yml -e sito_porta=ottanta: che cosa succede con il ruolo sito_nginx?",
+  "opzioni": [
+   "nginx viene configurato con una porta sbagliata e non riparte",
+   "argument_specs ferma il ruolo prima di qualsiasi task: ottanta non è un int, nessun file viene toccato",
+   "Ansible converte ottanta in 80",
+   "Fallisce solo il task del virtual host"
+  ],
+  "corretta": 1,
+  "spiegazione": "meta/argument_specs.yml è il contratto del ruolo: tipi e obbligatori vengono controllati all'ingresso, non task per task.",
+  "fonte": "terraform/08-ansible-ruoli-collection.md — passo 5",
+  "tipo": "didattica"
+ },
+ {
+  "id": "23-7",
+  "domanda": "Nel rolling update della parte 09 la verifica ha retries: 3 e delay: 2. Quanti tentativi fa su web2 rotto prima di fallire?",
+  "opzioni": [
+   "3",
+   "4: il primo più 3 ripetizioni, ogni 2 secondi",
+   "2",
+   "Riprova finché la pagina non torna giusta"
+  ],
+  "corretta": 1,
+  "spiegazione": "Misurato nel materiale con ansible-core 2.21.5: fino a 4 tentativi. Poi il task fallisce, web2 esce dal play e il suo post_tasks non lo rimette nel bilanciatore.",
+  "fonte": "terraform/09-ansible-vault-rolling-update.md — verifica con until",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "23-8",
+  "domanda": "Dopo il passo 6 della parte 10 (-var repliche=3) lanci un semplice «terraform apply». Che cosa succede?",
+  "opzioni": [
+   "Niente: Terraform ricorda repliche=3 nello state",
+   "Torna al default 2 e distrugge app03; l'inventario viene riscritto con due host",
+   "Crea app04",
+   "Chiede il valore di repliche"
+  ],
+  "corretta": 1,
+  "spiegazione": "-var non si ricorda. Per renderlo stabile si scrive repliche = 3 in terraform.tfvars.",
+  "fonte": "terraform/10-terraform-piu-ansible.md — trappole",
+  "tipo": "didattica"
+ }
+]

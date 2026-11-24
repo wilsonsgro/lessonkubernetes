@@ -1,0 +1,19 @@
+{
+  "name": "kubernetes-lessons-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node src/build.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
+    "serve": "node src/serve.mjs",
+    "importa:terraform": "node src/terraform.mjs importa",
+    "importa:progetto": "node src/progetto.mjs importa"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "highlight.js": "11.12.0",
+    "marked": "18.3.0"
+  }
+}

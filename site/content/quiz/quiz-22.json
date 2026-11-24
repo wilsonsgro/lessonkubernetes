@@ -1,0 +1,114 @@
+[
+ {
+  "id": "22-1",
+  "domanda": "Perché si fa «terraform apply piano.tfplan» invece di un «terraform apply» diretto?",
+  "opzioni": [
+   "Perché apply diretto non funziona con il provider docker",
+   "Perché l'apply esegue esattamente il piano letto e approvato, non uno ricalcolato nel frattempo, e non chiede conferma",
+   "Perché il piano salvato cifra lo state",
+   "Perché così Terraform non scrive lo state"
+  ],
+  "corretta": 1,
+  "spiegazione": "plan -out salva il diff calcolato in quel momento; l'apply del file esegue quello, anche se nel frattempo la realtà o il codice fossero cambiati. In pipeline: plan in MR, apply dello stesso piano.",
+  "fonte": "terraform/01-workflow-provider-state.md e 05-test-check-pipeline.md",
+  "tipo": "didattica"
+ },
+ {
+  "id": "22-2",
+  "domanda": "Un output ha «sensitive = true». Il valore è al sicuro nello state?",
+  "opzioni": [
+   "Sì: sensitive cifra il valore nello state",
+   "Sì, se lo state è su disco locale",
+   "No: sensitive lo nasconde in plan, output e log, ma nello state resta in chiaro; lo state va protetto e mai messo in git",
+   "No, ma basta terraform output -raw per cifrarlo"
+  ],
+  "corretta": 2,
+  "spiegazione": "Il materiale lo dice due volte: sensitive nasconde a video, non nello stato. Le alternative sono un backend cifrato con accesso ristretto, oppure segreti che non passano da Terraform (risorse ephemeral e argomenti write-only da 1.10).",
+  "fonte": "terraform/02-variabili-for-each-espressioni.md — Domande da colloquio",
+  "tipo": "didattica"
+ },
+ {
+  "id": "22-3",
+  "domanda": "Il plan mostra «-/+» su una risorsa con «# forces replacement». Che cosa sta succedendo?",
+  "opzioni": [
+   "Hai cambiato un attributo immutabile per l'API: la risorsa verrà distrutta e ricreata",
+   "Terraform modificherà la risorsa sul posto",
+   "La risorsa è in drift e verrà solo aggiornata nello state",
+   "Il provider è stato aggiornato di major"
+  ],
+  "corretta": 0,
+  "spiegazione": "Gli attributi «ForceNew» (immagine di un container, AMI di una VM, nome di un bucket) non si cambiano in place. Su un database ci si ferma e si ragiona: ricreare vuol dire perdere i dati.",
+  "fonte": "terraform/01-workflow-provider-state.md — Domande da colloquio",
+  "tipo": "didattica"
+ },
+ {
+  "id": "22-4",
+  "domanda": "Con count = 3 su [\"a\",\"b\",\"c\"] togli \"b\". Che cosa propone il plan?",
+  "opzioni": [
+   "Distrugge solo web[1]",
+   "Nessun cambiamento",
+   "\"c\" scala da web[2] a web[1]: Terraform modifica/ricrea web[1] e distrugge web[2], anche se \"c\" non è cambiato",
+   "Ricrea tutte e tre le risorse"
+  ],
+  "corretta": 2,
+  "spiegazione": "count indicizza per posizione. Con for_each l'indice è la chiave (web[\"a\"], web[\"c\"]) e il plan tocca solo \"b\". Regola: for_each per ciò che ha un'identità, count solo per 0 o 1.",
+  "fonte": "terraform/02-variabili-for-each-espressioni.md — count o for_each?",
+  "tipo": "didattica"
+ },
+ {
+  "id": "22-5",
+  "domanda": "Hai rinominato docker_container.cache in docker_container.sessioni. Come eviti che il plan lo distrugga e lo ricrei?",
+  "opzioni": [
+   "Con un blocco moved { from = docker_container.cache, to = docker_container.sessioni }",
+   "Con terraform apply -replace",
+   "Con un blocco removed",
+   "Non si può: un rename ricrea sempre"
+  ],
+  "corretta": 0,
+  "spiegazione": "moved sposta l'indirizzo nello state: il plan dice «has moved to» e 0 to destroy. removed serve a togliere dal codice senza distruggere; import ad adottare una risorsa creata fuori.",
+  "fonte": "terraform/03-stato-remoto-import-moved.md",
+  "tipo": "didattica"
+ },
+ {
+  "id": "22-6",
+  "domanda": "Nel laboratorio 03 l'import del Redis creato a mano con il solo nome del container fallisce. Perché?",
+  "opzioni": [
+   "Perché Redis non è supportato dal provider docker",
+   "Perché il provider docker vuole l'ID completo del container: con il nome il plan fallisce con «Cannot import non-existent remote object»",
+   "Perché manca terraform init",
+   "Perché il backend pg non supporta import"
+  ],
+  "corretta": 1,
+  "spiegazione": "È annotato nel file di lezione come provato: l'id del blocco import deve essere l'ID completo, che lo script passa in una variabile TF_VAR_.",
+  "fonte": "lezioni/terraform/03-stato-remoto-import-moved.tf — blocco import",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "22-7",
+  "domanda": "Un modulo è usato da 40 progetti con source «?ref=main». Che cosa c'è di sbagliato?",
+  "opzioni": [
+   "Niente: main è sempre la versione stabile",
+   "I moduli non possono stare in git",
+   "Un merge sul modulo cambierebbe i plan di tutti i 40 progetti insieme: le sorgenti vanno versionate (tag SemVer o registry) e adottate una per una",
+   "Il root non può configurare provider se il modulo è in git"
+  ],
+  "corretta": 2,
+  "spiegazione": "Nuova versione SemVer (major se rompe l'interfaccia), i progetti cambiano ref/version uno per volta con il plan in MR.",
+  "fonte": "terraform/04-moduli-ambienti.md — Domande da colloquio",
+  "tipo": "didattica"
+ },
+ {
+  "id": "22-8",
+  "domanda": "Che differenza c'è fra precondition, postcondition e check?",
+  "opzioni": [
+   "Sono sinonimi",
+   "precondition prima di creare/aggiornare e blocca; postcondition dopo, sul risultato (self), e blocca; check alla fine, sull'insieme, e avvisa senza bloccare",
+   "check blocca sempre, precondition e postcondition avvisano soltanto",
+   "Valgono solo dentro terraform test"
+  ],
+  "corretta": 1,
+  "spiegazione": "validation invece riguarda la singola variabile. Per trasformare il drift in un job rosso si usa plan -detailed-exitcode: 0 nessun cambiamento, 1 errore, 2 cambiamenti.",
+  "fonte": "terraform/05-test-check-pipeline.md — Domande da colloquio",
+  "tipo": "didattica"
+ }
+]

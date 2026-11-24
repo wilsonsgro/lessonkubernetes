@@ -1,0 +1,32 @@
+- name: Cartella della configurazione
+  ansible.builtin.file:
+    path: "{{ haproxy_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Immagine HAProxy
+  community.docker.docker_image:
+    name: "{{ haproxy_immagine }}"
+    source: pull
+
+- name: Configurazione HAProxy
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: "{{ haproxy_dir }}/haproxy.cfg"
+    mode: "0644"
+    validate: "docker run --rm -v %s:/tmp/haproxy.cfg:ro {{ haproxy_immagine }} haproxy -c -f /tmp/haproxy.cfg"
+  notify: Riavvia HAProxy
+
+- name: Container HAProxy sulla rete dell'host
+  community.docker.docker_container:
+    name: "{{ haproxy_nome }}"
+    image: "{{ haproxy_immagine }}"
+    network_mode: host
+    user: root
+    restart_policy: unless-stopped
+    volumes:
+      - "{{ haproxy_dir }}:/usr/local/etc/haproxy:ro"
+    state: started
+
+- name: Applica subito una configurazione cambiata
+  ansible.builtin.meta: flush_handlers

@@ -1,0 +1,114 @@
+[
+ {
+  "id": "04-1",
+  "domanda": "Nel lab si fa patch della ConfigMap (LOG_LEVEL=debug, feature.x=true) e si aspettano 60 s senza riavviare il Pod. Cosa si legge nel container?",
+  "opzioni": [
+   "LOG_LEVEL=debug e feature.x=true",
+   "LOG_LEVEL=info (la variabile no) e feature.x=true (il file sì)",
+   "LOG_LEVEL=info e feature.x=false",
+   "LOG_LEVEL=debug e feature.x=false"
+  ],
+  "corretta": 1,
+  "spiegazione": "È il punto della lezione, al passo 7: le env sono una fotografia presa all'avvio del container, mentre il volume senza subPath viene aggiornato dal kubelet al suo sync.",
+  "fonte": "5. Il runner, passo per passo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "04-2",
+  "domanda": "Un file di ConfigMap montato con subPath, quando si aggiorna nel Pod esistente?",
+  "opzioni": [
+   "Al prossimo sync del kubelet",
+   "Entro 5 secondi",
+   "Mai: serve un rollout (ad esempio tramite checksum nel template)",
+   "Solo se la ConfigMap è immutable"
+  ],
+  "corretta": 2,
+  "spiegazione": "Un volume con subPath non riceve mai gli aggiornamenti: è la trappola classica, e per questo il progetto vero mette il checksum della config nel template.",
+  "fonte": "1. La teoria nell'intestazione — Come arrivano nel Pod, e quando si aggiornano",
+  "tipo": "didattica"
+ },
+ {
+  "id": "04-3",
+  "domanda": "Perché Base64 non protegge la password di un Secret?",
+  "opzioni": [
+   "Perché è una codifica reversibile, non una cifratura: chi ha get sui secret la decodifica in un comando",
+   "Perché il Base64 è troppo corto",
+   "Perché etcd cifra solo i ConfigMap",
+   "Perché stringData disattiva la codifica"
+  ],
+  "corretta": 0,
+  "spiegazione": "Il runner legge .data.password e con base64 -d ottiene cambiami-subito. La protezione vera richiede RBAC, cifratura at-rest e una fonte esterna dei segreti.",
+  "fonte": "3. Il Secret db",
+  "tipo": "didattica"
+ },
+ {
+  "id": "04-4",
+  "domanda": "Qual è una differenza reale tra Secret e ConfigMap secondo il corso?",
+  "opzioni": [
+   "Il Secret è cifrato sempre in etcd",
+   "Il Secret non si può montare come file",
+   "Il ConfigMap non si può leggere con kubectl get",
+   "Nei volumi il Secret sta in tmpfs (in memoria) e mai su disco del nodo, e l'RBAC si può separare"
+  ],
+  "corretta": 3,
+  "spiegazione": "Le differenze vere sono RBAC separabile, tmpfs nei volumi e cifratura at-rest solo se l'apiserver ha una EncryptionConfiguration: non è automatica.",
+  "fonte": "1. La teoria nell'intestazione — Twelve-factor",
+  "tipo": "didattica"
+ },
+ {
+  "id": "04-5",
+  "domanda": "Perché il corso consiglia di passare i segreti come file e non come variabili d'ambiente?",
+  "opzioni": [
+   "Perché le env non supportano caratteri speciali",
+   "Perché le env finiscono in kubectl describe, nei crash dump, in /proc/<pid>/environ e nei log",
+   "Perché i file si aggiornano più velocemente",
+   "Perché le env richiedono privilegi di root"
+  ],
+  "corretta": 1,
+  "spiegazione": "Le env si diffondono in molti posti; un file montato con defaultMode stretto (0400) limita l'esposizione. DB_PASSWORD nel lab c'è proprio per mostrare il modo da evitare.",
+  "fonte": "4. Il Deployment conf — Le variabili d'ambiente",
+  "tipo": "didattica"
+ },
+ {
+  "id": "04-6",
+  "domanda": "Come fa il kubelet ad aggiornare un volume ConfigMap senza che l'app veda un file scritto a metà?",
+  "opzioni": [
+   "Scrive una cartella nuova con data e ora e sposta il link ..data in un colpo solo",
+   "Blocca il container durante la scrittura",
+   "Usa readOnly: true per impedire letture",
+   "Riavvia il container dopo la scrittura"
+  ],
+  "corretta": 0,
+  "spiegazione": "Lo swap atomico del symlink ..data rende l'aggiornamento istantaneo. readOnly: true vale per il container, non impedisce al kubelet di sostituire il contenuto.",
+  "fonte": "4. Il Deployment conf — I volumi",
+  "tipo": "didattica"
+ },
+ {
+  "id": "04-7",
+  "domanda": "Che effetto ha l'annotazione checksum/config nel pod template quando è calcolata da Helm?",
+  "opzioni": [
+   "Cifra la ConfigMap",
+   "Rende la ConfigMap immutabile",
+   "Se il contenuto della ConfigMap cambia, cambia il pod template e il Deployment fa un rollout automatico",
+   "Impedisce al kubelet di aggiornare il volume"
+  ],
+  "corretta": 2,
+  "spiegazione": "Ogni cambio del template crea un nuovo ReplicaSet; un checksum scritto a mano e mai cambiato, come nel lab, non scatena niente.",
+  "fonte": "4. Il Deployment conf — Template e annotazione di checksum",
+  "tipo": "didattica"
+ },
+ {
+  "id": "04-8",
+  "domanda": "Perché usare una ConfigMap immutable: true?",
+  "opzioni": [
+   "Perché viene cifrata in etcd",
+   "Perché si aggiorna senza rollout",
+   "Perché permette subPath aggiornabili",
+   "Perché il kubelet non la osserva più (meno watch sull'apiserver) e nessuno può cambiarla sotto i piedi a un'app in produzione"
+  ],
+  "corretta": 3,
+  "spiegazione": "Un oggetto immutabile non è né aggiornabile né osservato: per cambiarlo lo si ricrea.",
+  "fonte": "8. La coda: domande da colloquio",
+  "tipo": "didattica"
+ }
+]

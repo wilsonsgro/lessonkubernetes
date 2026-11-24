@@ -1,0 +1,195 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 07. ANSIBLE: PLAYBOOK, HANDLER, TEMPLATE, LOOP, BLOCK/RESCUE
+# Versione: ansible-core 2.21
+# Livello: 4 — Configuration management
+# ═══════════════════════════════════════════════════════════════════════════
+# Un playbook è codice che si legge dall'alto in basso: play → task, in
+# ordine, su tutti gli host del play in parallelo (strategia "linear": il
+# task N parte su tutti solo quando il task N-1 è finito su tutti).
+#
+# CONCETTI DA SAPER SPIEGARE
+#   handler        task eseguito UNA volta a fine play, solo se notificato
+#                  da un task "changed" (es. reload di nginx dopo la config)
+#   template       file Jinja2 renderizzato con le variabili dell'host
+#   register       salva il risultato di un task in una variabile
+#   when           condizione (espressione Jinja SENZA {{ }})
+#   loop           ripete un task su una lista (with_items è il vecchio modo)
+#   block/rescue/always   try/catch/finally
+#   tags           eseguire solo una parte: --tags config
+#   check + diff   --check --diff = dry-run che mostra le differenze
+#
+# LAB (inventario e container della lezione 06)
+#   cp 07-ansible-playbook.yml ~/ansible/site.yml && cd ~/ansible
+#   ansible-playbook site.yml --syntax-check
+#   ansible-playbook site.yml --check --diff        # cosa farebbe, senza farlo
+#     ↑ su host vergini FALLISCE: "Could not find the requested service nginx"
+#       (in check il pacchetto non è stato installato davvero: provato)
+#   ansible-playbook site.yml                       # prima volta: changed
+#   ansible-playbook site.yml                       # seconda: changed=0
+#   ansible-playbook site.yml -e messaggio="ciao" --diff   # cambia la pagina, ma niente handler: il notify è sulla config
+#   ansible-playbook site.yml --tags config --limit web1
+#   ansible-playbook site.yml --limit web1 -e porta_http=abc   # validate la rifiuta:
+#     "failed to validate", il file sul server resta quello buono, nginx risponde
+#   docker exec web1 curl -s localhost
+#   ansible-lint site.yml
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Tutti i pezzi di questa lezione, in un playbook vero:
+#   • template con validate prima di sostituire il file, e handler:
+#       grep -n -E 'validate|Riavvia' ansible/roles/haproxy/tasks/main.yml
+#   • block/always per pulire anche quando terraform fallisce:
+#       grep -n -A3 'always:' ansible/roles/cluster/tasks/main.yml
+#   • loop con label leggibile, changed_when e failed_when sull'esito:
+#       grep -n -E 'label|failed_when' ansible/roles/verifica/tasks/main.yml
+#   • until/retries per aspettare uno stato invece di sleep fissi:
+#       grep -n -A3 'until:' ansible/roles/verifica/tasks/main.yml
+#   Il secondo giro di ./deploy.sh deve dare changed=0. Ogni command ha il
+#   suo changed_when per questo.
+
+- name: Configura i server web
+  hosts: web
+  become: true                      # sudo: nei container sei già root, sulle VM serve
+  vars:
+    messaggio: "Servito da Ansible"
+    utenti:
+      - { nome: deploy, gruppi: [www-data] }
+      - { nome: monitor, gruppi: [] }
+
+  pre_tasks:
+    - name: Aggiorna la cache di apt solo se più vecchia di un'ora
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+  tasks:
+    - name: Installa i pacchetti del gruppo
+      ansible.builtin.apt:
+        name: "{{ pacchetti }}"      # una lista in un colpo: più veloce di un loop
+        state: present
+      tags: [pacchetti]
+
+    - name: Crea gli utenti applicativi
+      ansible.builtin.user:
+        name: "{{ item.nome }}"
+        groups: "{{ item.gruppi }}"
+        append: true
+        shell: /bin/bash
+      loop: "{{ utenti }}"
+      loop_control:
+        label: "{{ item.nome }}"    # nell'output solo il nome, non tutto il dizionario
+
+    - name: Pagina iniziale da template
+      ansible.builtin.copy:
+        # "content" è anch'esso Jinja; con un file .j2 si usa il modulo
+        # template (src: index.html.j2), stesso risultato
+        content: |
+          <h1>{{ inventory_hostname }}</h1>
+          <p>{{ messaggio }} · ambiente {{ ambiente }} · peso {{ peso_lb | default(1) }}</p>
+          {% if ansible_facts['distribution'] == 'Ubuntu' %}
+          <p>Ubuntu {{ ansible_facts['distribution_version'] }}</p>
+          {% endif %}
+        dest: /var/www/html/index.html
+        owner: www-data
+        mode: "0644"
+      tags: [config]
+
+    - name: Configurazione di nginx
+      ansible.builtin.copy:
+        content: |
+          server {
+            listen {{ porta_http }} default_server;
+            root /var/www/html;
+            location /salute { return 200 "ok\n"; }
+          }
+        dest: /etc/nginx/sites-available/default
+        mode: "0644"
+        # %s = il file nuovo, ancora temporaneo. Un frammento di "server" non
+        # si valida da solo: lo includo in una config minima e lancio nginx -t.
+        # (nginx -t sul nginx.conf installato controllerebbe il file VECCHIO)
+        validate: "bash -c 'echo \"events {} http { include %s; }\" > /tmp/v.conf && nginx -t -c /tmp/v.conf'"
+      notify: Ricarica nginx         # solo se questo task è "changed"
+      tags: [config]
+
+    - name: Nginx avviato e abilitato al boot
+      ansible.builtin.systemd_service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Versione di nginx (comando idempotente dichiarato)
+      ansible.builtin.command: nginx -v
+      register: versione
+      changed_when: false            # un comando di sola lettura non "cambia" niente
+
+    - name: Mostra la versione
+      ansible.builtin.debug:
+        msg: "{{ versione.stderr }}"  # nginx -v scrive su stderr
+
+    - name: Deploy con ripristino
+      block:
+        - name: Simula un passo che può fallire
+          ansible.builtin.command: "test -f /etc/nginx/nginx.conf"
+          changed_when: false
+        - name: Controlla che il sito risponda
+          ansible.builtin.uri:
+            url: "http://localhost:{{ porta_http }}/salute"
+            status_code: 200
+      rescue:
+        - name: Ripristina la configurazione di default
+          ansible.builtin.debug:
+            msg: "qui un rollback: copia del file precedente, reload"
+      always:
+        - name: Registra l'esito
+          ansible.builtin.debug:
+            msg: "deploy su {{ inventory_hostname }} terminato"
+
+  handlers:
+    - name: Ricarica nginx
+      ansible.builtin.systemd_service:
+        name: nginx
+        state: reloaded
+
+- name: Verifica dal punto di vista di un client
+  hosts: web
+  gather_facts: false
+  tasks:
+    - name: La pagina contiene il nome dell'host
+      ansible.builtin.uri:
+        url: "http://localhost:{{ porta_http }}/"
+        return_content: true
+      register: pagina
+      failed_when: inventory_hostname not in pagina.content
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Il handler non è partito anche se ho cambiato la config. Perché?
+# R: 1) il task che notifica non era "changed" (contenuto identico);
+#    2) il play è fallito prima della fine: i handler girano a fine play
+#    (--force-handlers per eseguirli comunque, o meta: flush_handlers per
+#    eseguirli subito); 3) il nome nel notify non coincide (o usa listen).
+#
+# D: Come rendi idempotente un task shell?
+# R: creates:/removes: (salta se il file esiste/non esiste), changed_when
+#    basato sull'output, oppure un controllo registrato + when. Meglio
+#    ancora: un modulo.
+#
+# D: --check è affidabile?
+# R: Solo per i moduli che lo supportano; command/shell vengono saltati
+#    (o eseguiti con check_mode: false), e i task che dipendono da un
+#    register di un task saltato possono fallire. È un'anteprima, non una
+#    garanzia: per questo si testa con Molecule (lezione 08).
+#
+# D: Perché validate: nel copy della config?
+# R: Il file viene scritto in un temporaneo, validato (nginx -t, visudo -cf,
+#    sshd -t) e copiato solo se valido: una config rotta non arriva mai sul
+#    server, quindi il reload non può rompere il servizio.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Play → task in ordine, host in parallelo; seconda esecuzione changed=0
+# • notify + handler = reload una volta sola, solo se serve
+# • register / when / loop / changed_when / failed_when
+# • block-rescue-always per deploy con ripristino
+# • --check --diff per l'anteprima, validate: per le config, ansible-lint
+# ══════════════════════════════════════════════════════════════════════════

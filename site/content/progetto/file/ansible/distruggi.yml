@@ -1,0 +1,44 @@
+- name: Spegne e cancella l'ambiente Kubernetes del Biodistretto
+  hosts: lab
+  gather_facts: true
+  tasks:
+    - name: Cartella privata per i piani Terraform
+      ansible.builtin.file:
+        path: "{{ tf_tmp_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Toglie la riaccensione all'avvio
+      ansible.builtin.cron:
+        name: "minikube {{ nome_cluster }} all'avvio"
+        state: absent
+
+    - name: Toglie HAProxy
+      community.docker.docker_container:
+        name: "{{ haproxy_nome }}"
+        state: absent
+
+    - name: Distrugge i workload
+      community.general.terraform:
+        project_path: "{{ tf_app_dir }}"
+        state: absent
+        force_init: true
+        variables:
+          immagine_backend: x
+          immagine_frontend: x
+      environment:
+        TMPDIR: "{{ tf_tmp_dir }}"
+      when: (tf_app_dir ~ '/terraform.tfstate') is file
+
+    - name: Distrugge il cluster minikube
+      community.general.terraform:
+        project_path: "{{ tf_cluster_dir }}"
+        state: absent
+        force_init: true
+      environment:
+        TMPDIR: "{{ tf_tmp_dir }}"
+
+    - name: Toglie i piani, che contengono lo stato con i segreti
+      ansible.builtin.file:
+        path: "{{ tf_tmp_dir }}"
+        state: absent

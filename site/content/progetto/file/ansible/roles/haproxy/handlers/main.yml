@@ -1,0 +1,11 @@
+- name: Riavvia HAProxy
+  community.docker.docker_container:
+    name: "{{ haproxy_nome }}"
+    image: "{{ haproxy_immagine }}"
+    network_mode: host
+    user: root
+    restart_policy: unless-stopped
+    volumes:
+      - "{{ haproxy_dir }}:/usr/local/etc/haproxy:ro"
+    state: started
+    restart: true

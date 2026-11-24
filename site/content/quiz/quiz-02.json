@@ -1,0 +1,114 @@
+[
+ {
+  "id": "02-1",
+  "domanda": "Quale modifica a un Deployment crea un nuovo ReplicaSet?",
+  "opzioni": [
+   "Cambiare il numero di replicas",
+   "Cambiare revisionHistoryLimit",
+   "Cambiare l'immagine nel pod template",
+   "Cambiare progressDeadlineSeconds"
+  ],
+  "corretta": 2,
+  "spiegazione": "Ogni modifica al pod template (immagine, env, annotazioni del template) crea un ReplicaSet nuovo. Cambiare replicas o altri campi fuori dal template scala o configura quello esistente.",
+  "fonte": "1. La teoria nell'intestazione — Un Deployment gestisce ReplicaSet, non Pod",
+  "tipo": "didattica"
+ },
+ {
+  "id": "02-2",
+  "domanda": "Con replicas 3, maxSurge 1 e maxUnavailable 0, come procede il rollout?",
+  "opzioni": [
+   "Spegne un Pod vecchio, poi ne avvia uno nuovo",
+   "Avvia tre Pod nuovi insieme, poi spegne i vecchi",
+   "Spegne tutti i Pod e poi li riaccende",
+   "Sale un Pod nuovo, aspetta che sia pronto e available, poi spegne un Pod vecchio; ripete tre volte"
+  ],
+  "corretta": 3,
+  "spiegazione": "Al massimo 4 Pod (3+1) e mai sotto 3 pronti: si aggiunge capacità prima di toglierla. Spegnere tutto e riaccendere è la strategia Recreate.",
+  "fonte": "3. Il Deployment web — campo per campo",
+  "tipo": "didattica"
+ },
+ {
+  "id": "02-3",
+  "domanda": "Cosa succede quando una readinessProbe fallisce?",
+  "opzioni": [
+   "Il kubelet riavvia il container",
+   "Il Pod esce dagli EndpointSlice e non riceve traffico, ma non viene riavviato",
+   "Il Pod viene sfrattato dal nodo",
+   "Le altre probe si sospendono"
+  ],
+  "corretta": 1,
+  "spiegazione": "La readiness toglie traffico; è la liveness che fa riavviare il container dal kubelet, mentre la startup blocca le altre probe finché non passa.",
+  "fonte": "3. Il Deployment web — Le tre probe",
+  "tipo": "didattica"
+ },
+ {
+  "id": "02-4",
+  "domanda": "Perché è un errore classico mettere nella liveness un controllo del database?",
+  "opzioni": [
+   "Perché la liveness non può fare richieste HTTP",
+   "Perché il database rifiuta le connessioni dalle probe",
+   "Perché se il DB rallenta tutte le liveness falliscono e il kubelet riavvia tutti i Pod: un rallentamento diventa un'interruzione",
+   "Perché la liveness parte prima della startupProbe"
+  ],
+  "corretta": 2,
+  "spiegazione": "La liveness deve controllare solo che il processo sia vivo; le dipendenze, se proprio, le controlla la readiness, che toglie traffico senza riavviare.",
+  "fonte": "3. Il Deployment web — Le tre probe",
+  "tipo": "didattica"
+ },
+ {
+  "id": "02-5",
+  "domanda": "A cosa serve il preStop con sleep di 5 secondi nel Deployment web?",
+  "opzioni": [
+   "A ritardare il SIGTERM di 5 s, il tempo perché il Pod esca dagli Endpoint e non riceva più richieste",
+   "Ad allungare terminationGracePeriodSeconds di 5 s",
+   "A far partire più lentamente il container",
+   "A garantire da solo lo zero downtime"
+  ],
+  "corretta": 0,
+  "spiegazione": "Rimozione dagli Endpoint e SIGTERM avvengono in parallelo e la prima è più lenta: lo sleep riduce i 502. Il tempo conta dentro i 30 s del grace period e non garantisce da solo lo zero downtime.",
+  "fonte": "3. Il Deployment web — Shutdown pulito: preStop",
+  "tipo": "didattica"
+ },
+ {
+  "id": "02-6",
+  "domanda": "Un container termina con exit code 137. Cosa indica?",
+  "opzioni": [
+   "SIGTERM gestito male (128+15)",
+   "Immagine non trovata",
+   "Readiness fallita",
+   "SIGKILL (128+9): OOMKilled o grace period scaduto"
+  ],
+  "corretta": 3,
+  "spiegazione": "137 = 128+9 = SIGKILL, tipico di OOMKilled o grace period scaduto; 143 = 128+15 = SIGTERM. Il motivo si legge in lastState.terminated.reason.",
+  "fonte": "6. La coda: domande da colloquio",
+  "tipo": "didattica"
+ },
+ {
+  "id": "02-7",
+  "domanda": "Che classe QoS hanno i Pod web (request cpu 50m e memoria 32Mi, limit solo memoria 64Mi)?",
+  "opzioni": [
+   "Guaranteed",
+   "Burstable",
+   "BestEffort",
+   "Critical"
+  ],
+  "corretta": 1,
+  "spiegazione": "C'è almeno una request ma request e limit non coincidono per CPU e memoria, quindi Burstable. Guaranteed richiede request = limit per CPU e memoria; BestEffort nessuna request né limit.",
+  "fonte": "3. Il Deployment web — Risorse e QoS",
+  "tipo": "didattica"
+ },
+ {
+  "id": "02-8",
+  "domanda": "Nel lab, dopo set image a v1.11 senza annotate, cosa mostrava la CHANGE-CAUSE della revisione 2 in rollout history?",
+  "opzioni": [
+   "«prima versione», la causa vecchia copiata dal Deployment",
+   "Vuota",
+   "«whoami v1.11», ricavata in automatico dall'immagine",
+   "«kubectl set image»"
+  ],
+  "corretta": 0,
+  "spiegazione": "È un fatto provato nel file: change-cause si copia dal Deployment al ReplicaSet a ogni rollout, quindi senza annotate --overwrite ci si porta dietro quella vecchia.",
+  "fonte": "1. La teoria nell'intestazione — I comandi LAB dell'intestazione",
+  "tipo": "esito-lab"
+ }
+]

@@ -1,0 +1,114 @@
+[
+ {
+  "id": "21t-1",
+  "domanda": "Perché con il passthrough non si può instradare /api/ verso un backend diverso?",
+  "opzioni": [
+   "Perché in mode tcp HAProxy non supporta più di un backend",
+   "Perché il path è dentro la richiesta HTTP cifrata: in chiaro HAProxy vede solo lo SNI dell'handshake",
+   "Perché path_beg funziona solo sulla porta 80",
+   "Perché il passthrough richiede che tutti i server abbiano lo stesso certificato"
+  ],
+  "corretta": 1,
+  "spiegazione": "HAProxy non decifra: path, header e cookie restano cifrati. Può scegliere il backend solo con req_ssl_sni, che viaggia in chiaro nel ClientHello.",
+  "fonte": "Approfondimento haproxy.cfg e TLS — 6.3 Passthrough e 8. Domande d'esame",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21t-2",
+  "domanda": "Qual è il rischio di «server ... ssl verify none»?",
+  "opzioni": [
+   "Il traffico verso il server viaggia in chiaro",
+   "HAProxy non riesce a fare l'health check",
+   "Il traffico è cifrato ma l'identità del server non è verificata: un man-in-the-middle nella rete interna è possibile",
+   "Il client vede un certificato scaduto"
+  ],
+  "corretta": 2,
+  "spiegazione": "verify none dà cifratura senza autenticazione. Con verify required e ca-file HAProxy controlla il certificato del server con la CA interna.",
+  "fonte": "Approfondimento haproxy.cfg e TLS — 6.2 Ri-cifratura e 8. Domande d'esame",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21t-3",
+  "domanda": "Come fa un solo HAProxy a servire più siti HTTPS sulla stessa porta 443?",
+  "opzioni": [
+   "Con lo SNI: il client dichiara il nome del sito nell'handshake e HAProxy sceglie il certificato fra quelli caricati con crt",
+   "Aprendo una porta diversa per ogni certificato",
+   "Con l'header Host, letto prima dell'handshake TLS",
+   "Con option forwardfor"
+  ],
+  "corretta": 0,
+  "spiegazione": "Con crt /etc/haproxy/certs/ (una directory) HAProxy carica tutti i PEM e per ogni connessione usa quello che corrisponde allo SNI. L'header Host arriva solo dopo, dentro la richiesta cifrata.",
+  "fonte": "Approfondimento haproxy.cfg e TLS — 6.1 Terminazione e 8. Domande d'esame",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21t-4",
+  "domanda": "Che differenza c'è tra roundrobin e leastconn?",
+  "opzioni": [
+   "roundrobin sceglie il server con meno connessioni, leastconn a turno",
+   "roundrobin distribuisce a turno; leastconn sceglie il server con meno connessioni attive, meglio con richieste di durata molto diversa",
+   "Sono identici, cambia solo il nome",
+   "leastconn manda sempre lo stesso client allo stesso server"
+  ],
+  "corretta": 1,
+  "spiegazione": "Nel file del negozio be_web usa roundrobin (richieste brevi e simili), be_api usa leastconn (API pesanti). Lo stesso client sullo stesso server è balance source.",
+  "fonte": "Approfondimento haproxy.cfg e TLS — 4. Bilanciamento e 8. Domande d'esame",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21t-5",
+  "domanda": "Perché si usa option forwardfor?",
+  "opzioni": [
+   "Per inoltrare le richieste HTTP su HTTPS",
+   "Per attivare HTTP/2 verso i server",
+   "Perché i server vedono come mittente l'IP di HAProxy: X-Forwarded-For porta l'IP reale del client, utile per log, sicurezza e limiti per IP",
+   "Per abilitare lo SNI verso i server"
+  ],
+  "corretta": 2,
+  "spiegazione": "È nella sezione defaults del file, quindi vale per tutti i frontend e backend in mode http. In passthrough non è possibile: HAProxy non può aggiungere header a una richiesta che non vede.",
+  "fonte": "Approfondimento haproxy.cfg e TLS — 5. defaults e 8. Domande d'esame",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21t-6",
+  "domanda": "Con «check inter 3s fall 3 rise 2», quando un server esce dal giro e quando ci rientra?",
+  "opzioni": [
+   "Esce al primo errore, rientra dopo 3 secondi",
+   "Esce dopo 3 controlli falliti consecutivi (circa 9 s), rientra dopo 2 riusciti consecutivi",
+   "Esce dopo 2 fallimenti, rientra dopo 3 successi",
+   "Non esce mai: check registra solo i log"
+  ],
+  "corretta": 1,
+  "spiegazione": "inter è l'intervallo, fall i fallimenti consecutivi per andare DOWN, rise i successi consecutivi per tornare UP. Con option httpchk il controllo è una vera GET /health, come una readinessProbe.",
+  "fonte": "Approfondimento haproxy.cfg e TLS — 4. Health check",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21t-7",
+  "domanda": "Nel frontend fe_https, dove finisce una richiesta a https://www.negozio.it/API/ordini (API maiuscolo)?",
+  "opzioni": [
+   "be_api, perché -i rende tutto case-insensitive",
+   "be_web: -i vale solo per hdr(host); path_beg /api/ è sensibile alle maiuscole, quindi vince la seconda regola",
+   "Nessun backend: la richiesta viene rifiutata",
+   "be_pagamenti"
+  ],
+  "corretta": 1,
+  "spiegazione": "Le regole use_backend si valutano in ordine: host_negozio è vera, percorso_api no (path_beg senza -i), quindi la prima regola non scatta e scatta «use_backend be_web if host_negozio».",
+  "fonte": "Approfondimento haproxy.cfg e TLS — 5. frontend fe_https",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21t-8",
+  "domanda": "Cosa contiene il file PEM che HAProxy usa con crt, e cosa va fatto prima di un reload?",
+  "opzioni": [
+   "Solo la chiave privata; il reload non richiede controlli",
+   "Certificato, catena intermedia e chiave privata in un solo file (chmod 600); prima del reload haproxy -c -f per verificare la sintassi",
+   "Solo il certificato pubblico; prima del reload si riavvia il server",
+   "La CA interna; prima del reload openssl s_client"
+  ],
+  "corretta": 1,
+  "spiegazione": "cat crt + intermedia + key > negozio.it.pem. Un errore di sintassi in produzione significa un servizio che non riparte: sempre -c prima di systemctl reload haproxy.",
+  "fonte": "Approfondimento haproxy.cfg e TLS — 6.1 formato dei certificati e 7. Comandi",
+  "tipo": "didattica"
+ }
+]

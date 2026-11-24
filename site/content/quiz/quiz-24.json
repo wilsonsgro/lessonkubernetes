@@ -1,0 +1,114 @@
+[
+ {
+  "id": "24-1",
+  "domanda": "Nel Biodistretto chi lancia Terraform?",
+  "opzioni": [
+   "Un job di CI a ogni push",
+   "Ansible, con community.general.terraform, e poi ne usa gli output",
+   "deploy.sh, con terraform apply diretto",
+   "Terraform lancia Ansible con un provisioner local-exec"
+  ],
+  "corretta": 1,
+  "spiegazione": "È la catena della parte 10 al contrario: il ruolo cluster e il ruolo app chiamano Terraform e leggono la CA e la password negli output.",
+  "fonte": "progetto/file/ansible/roles/app/tasks/main.yml",
+  "tipo": "didattica"
+ },
+ {
+  "id": "24-2",
+  "domanda": "Perché il ruolo cluster mette TMPDIR in .cache/tf e la svuota in un blocco always?",
+  "opzioni": [
+   "Per andare più veloce su disco",
+   "Perché i piani .tfplan contengono lo state, quindi chiavi e password, e in /tmp resterebbero leggibili",
+   "Perché Terraform non può scrivere in /tmp",
+   "Per tenere uno storico dei piani"
+  ],
+  "corretta": 1,
+  "spiegazione": "Il modulo terraform di Ansible scrive un piano a ogni giro. Con TMPDIR privato (0700) e always il piano sparisce anche se Terraform fallisce.",
+  "fonte": "progetto/file/ansible/roles/cluster/tasks/main.yml",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "24-3",
+  "domanda": "Da dove vengono le righe server della configurazione di HAProxy?",
+  "opzioni": [
+   "Scritte a mano in haproxy.cfg",
+   "Da un loop Jinja sui nodi, i cui InternalIP Ansible legge con kubectl get nodes",
+   "Dall'output di Terraform cluster",
+   "Dal DNS di Kubernetes"
+  ],
+  "corretta": 1,
+  "spiegazione": "Il template haproxy.cfg.j2 scrive {% for nome, ip in nodi %} una riga server per nodo, con check port 30081 e send-proxy-v2.",
+  "fonte": "progetto/file/ansible/roles/haproxy/templates/haproxy.cfg.j2",
+  "tipo": "didattica"
+ },
+ {
+  "id": "24-4",
+  "domanda": "Il Service di nginx ha externalTrafficPolicy: Local. Che cosa succede su un nodo senza Pod di nginx?",
+  "opzioni": [
+   "Il NodePort inoltra a un altro nodo",
+   "Il controllo di salute di quel nodo fallisce e HAProxy lo toglie dal giro",
+   "kube-proxy crea un Pod di nginx",
+   "Il traffico va perso senza che HAProxy se ne accorga"
+  ],
+  "corretta": 1,
+  "spiegazione": "Con Local il NodePort risponde solo dove gira un Pod: il controllo su /healthz (NodePort 30081) lo rivela e l'IP del client resta quello vero.",
+  "fonte": "progetto/file/terraform/app/manifests/app.yaml.tftpl",
+  "tipo": "didattica"
+ },
+ {
+  "id": "24-5",
+  "domanda": "A che cosa serve send-proxy-v2 sulle righe server di HAProxy?",
+  "opzioni": [
+   "A cifrare la connessione verso i nodi",
+   "A mandare a nginx l'IP vero del client con il PROXY protocol, letto da listen … proxy_protocol",
+   "A comprimere il traffico",
+   "A riprovare la richiesta su un altro nodo"
+  ],
+  "corretta": 1,
+  "spiegazione": "HAProxy è in mode tcp e non tocca l'HTTP: l'intestazione PROXY v2 porta l'IP del client; nginx la legge con real_ip_header proxy_protocol.",
+  "fonte": "progetto/file/terraform/app/nginx/bordo.conf",
+  "tipo": "didattica"
+ },
+ {
+  "id": "24-6",
+  "domanda": "Perché il tag delle immagini è il loro ID?",
+  "opzioni": [
+   "Perché latest non esiste in minikube",
+   "Un cambio di codice dà un ID nuovo e i Pod ripartono; un rilancio senza cambi lascia lo stesso ID e non tocca niente",
+   "Per risparmiare spazio nel registro",
+   "Perché Terraform non accetta tag testuali"
+  ],
+  "corretta": 1,
+  "spiegazione": "È l'idempotenza applicata alle immagini: minikube image load solo per quelle nuove, e il manifest cambia solo se cambia l'immagine.",
+  "fonte": "progetto/file/ansible/roles/immagini/tasks/main.yml",
+  "tipo": "didattica"
+ },
+ {
+  "id": "24-7",
+  "domanda": "Le password del database le genera random_password. Perché lo state non va in git?",
+  "opzioni": [
+   "Perché è troppo grande",
+   "Perché contiene in chiaro le password generate, le chiavi e il certificato",
+   "Perché cambia a ogni plan",
+   "Perché git non gestisce il JSON"
+  ],
+  "corretta": 1,
+  "spiegazione": "sensitive nasconde i valori nell'output, non nello state. Per questo .gitignore esclude *.tfstate e *.tfplan.",
+  "fonte": "progetto/file/terraform/app/segreti.tf",
+  "tipo": "didattica"
+ },
+ {
+  "id": "24-8",
+  "domanda": "Che cosa causava Pod con IP doppi e volumi Pending nel cluster creato dal provider minikube?",
+  "opzioni": [
+   "Troppi Pod per nodo",
+   "Il bridge podman (87-podman-bridge.conflist) rimasto attivo accanto a kindnet",
+   "Un errore di HAProxy",
+   "Il driver docker al posto di kvm"
+  ],
+  "corretta": 1,
+  "spiegazione": "Rimedio: cni = \"kindnet\" esplicito, bridge spento su ogni nodo e Pod di kube-system ricreati solo dove serviva.",
+  "fonte": "progetto/file/README.md — Trappola del provider minikube",
+  "tipo": "esito-lab"
+ }
+]

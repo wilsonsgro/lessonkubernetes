@@ -1,0 +1,44 @@
+# Generato da Ansible (ruolo haproxy): ingresso dell'host verso i NodePort di nginx su ogni nodo minikube.
+global
+    log stdout format raw local0
+    user haproxy
+    group haproxy
+    maxconn 4096
+
+defaults
+    log global
+    mode tcp
+    option tcplog
+    timeout connect 5s
+    timeout client 300s
+    timeout server 300s
+
+frontend statistiche
+    mode http
+    bind :{{ haproxy_porta_stats }}
+    stats enable
+    stats uri /
+    stats refresh 10s
+    stats auth admin:{{ haproxy_password_stats }}
+
+frontend http_in
+    bind :80
+    default_backend nodi_http
+
+frontend https_in
+    bind :443
+    default_backend nodi_https
+
+backend nodi_http
+    balance roundrobin
+    option httpchk GET /healthz
+{% for nome, ip in nodi %}
+    server {{ nome }} {{ ip }}:{{ nodeport_http }} check port {{ nodeport_salute }} send-proxy-v2
+{% endfor %}
+
+backend nodi_https
+    balance roundrobin
+    option httpchk GET /healthz
+{% for nome, ip in nodi %}
+    server {{ nome }} {{ ip }}:{{ nodeport_https }} check port {{ nodeport_salute }} send-proxy-v2
+{% endfor %}

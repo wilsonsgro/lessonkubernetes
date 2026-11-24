@@ -1,0 +1,114 @@
+[
+ {
+  "id": "08-1",
+  "domanda": "Qual è l'ordine del metodo di troubleshooting insegnato nella lezione?",
+  "opzioni": [
+   "LOG → STATO → EVENTI → INTORNO → DENTRO",
+   "STATO → EVENTI → LOG → DENTRO → INTORNO",
+   "EVENTI → LOG → STATO → DENTRO → INTORNO",
+   "DENTRO → INTORNO → STATO → EVENTI → LOG"
+  ],
+  "corretta": 1,
+  "spiegazione": "Si parte da get pod (STATO), poi describe/eventi, logs, exec/debug, e infine Service, EndpointSlice, NetworkPolicy, nodo e quota. La colonna STATUS dice già dove cercare.",
+  "fonte": "1. La teoria nell'intestazione — Un metodo, non un elenco di comandi",
+  "tipo": "didattica"
+ },
+ {
+  "id": "08-2",
+  "domanda": "Il Pod enorme chiede 64 di CPU ed è Pending con NODE vuota. Dove si trova la causa?",
+  "opzioni": [
+   "Negli eventi dello scheduler (describe): FailedScheduling, Insufficient cpu",
+   "Nei log del container",
+   "Nell'EndpointSlice",
+   "Nel lastState.terminated"
+  ],
+  "corretta": 0,
+  "spiegazione": "Pending = scheduler: il container non è mai partito e non ha log. 64 vuol dire 64 core, non 64m.",
+  "fonte": "6. Il runner, passo per passo",
+  "tipo": "didattica"
+ },
+ {
+  "id": "08-3",
+  "domanda": "Nel lab, che cosa stampa il jsonpath su state.terminated del Pod memoria (100 MB allocati con limite 20 MiB)?",
+  "opzioni": [
+   "Error exit=1",
+   "Completed exit=0",
+   "OOMKilled exit=137",
+   "OOMKilled exit=143"
+  ],
+  "corretta": 2,
+  "spiegazione": "Il passo 11 mostra OOMKilled exit=137 (128 + SIGKILL 9). Si legge state.terminated perché il Pod non ripartirà.",
+  "fonte": "4. diagnosi — Perché è morto memoria",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "08-4",
+  "domanda": "Perché il solo exit code 137 non basta a diagnosticare un OOM?",
+  "opzioni": [
+   "Perché 137 indica sempre un errore dell'applicazione",
+   "Perché l'OOM dà sempre exit 143",
+   "Perché 137 indica un'immagine non trovata",
+   "Perché 137 = SIGKILL, che può arrivare anche da un grace period scaduto: serve leggere reason in state/lastState.terminated"
+  ],
+  "corretta": 3,
+  "spiegazione": "137 dice solo che il processo è morto per SIGKILL; la reason OOMKilled conferma il superamento del limite di memoria.",
+  "fonte": "Spiegazione e riflessioni ragionate — I cinque guasti intenzionali",
+  "tipo": "didattica"
+ },
+ {
+  "id": "08-5",
+  "domanda": "Il Pod eco è Running 1/1 ma il Service non risponde. Qual è il primo controllo giusto?",
+  "opzioni": [
+   "Riavviare il Pod",
+   "Guardare gli EndpointSlice del Service e confrontare il selector con le label dei Pod",
+   "Aumentare i limiti di CPU",
+   "Leggere i log con --previous"
+  ],
+  "corretta": 1,
+  "spiegazione": "L'EndpointSlice è vuoto perché il selector dice app=ecco mentre i Pod hanno app=eco. Un patch del selector ripara il routing senza riavviare l'app.",
+  "fonte": "4. diagnosi — Il Service eco ha endpoint?",
+  "tipo": "didattica"
+ },
+ {
+  "id": "08-6",
+  "domanda": "Come si diagnostica un'immagine FROM scratch come whoami, che non ha shell?",
+  "opzioni": [
+   "kubectl exec -- sh",
+   "kubectl cp di una shell nel container",
+   "kubectl debug con un container effimero busybox e --target=whoami",
+   "Non si può senza ricostruire l'immagine"
+  ],
+  "corretta": 2,
+  "spiegazione": "Il container effimero porta gli attrezzi, condivide rete e (con --target) i processi del container; serve -i per vedere l'output. Resta nella spec finché il Pod non viene ricreato.",
+  "fonte": "4. diagnosi — Debug in un Pod senza shell",
+  "tipo": "didattica"
+ },
+ {
+  "id": "08-7",
+  "domanda": "Un container è in CrashLoopBackOff. Cosa mostra `kubectl logs` durante il back-off?",
+  "opzioni": [
+   "Già i log dell'istanza morta (es. «manca DATABASE_URL»)",
+   "Niente: bisogna sempre usare --previous",
+   "Solo i log del kubelet",
+   "I log del container di init"
+  ],
+  "corretta": 0,
+  "spiegazione": "Durante il back-off il container attuale è già quello morto; --previous è l'istanza prima ancora e, se manca, può uscire 0 senza log (provato su k3s), quindi un || ripiego non scatterebbe.",
+  "fonte": "4. diagnosi — LOG del container crashato",
+  "tipo": "didattica"
+ },
+ {
+  "id": "08-8",
+  "domanda": "Nel progetto vero, `kubectl cp` verso il container MinIO dà rc 127. Perché?",
+  "opzioni": [
+   "Permesso negato sul volume",
+   "Il Pod è in un altro namespace",
+   "La NetworkPolicy blocca il trasferimento",
+   "kubectl cp usa tar dentro il container e l'immagine non ce l'ha (127 = comando non trovato)"
+  ],
+  "corretta": 3,
+  "spiegazione": "È uno dei guasti veri riportati: il ripiego è port-forward e un client dedicato (mc mirror).",
+  "fonte": "1. La teoria nell'intestazione — Riquadro NEL PROGETTO VERO: guasti veri",
+  "tipo": "esito-lab"
+ }
+]

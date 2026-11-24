@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init
+  namespace: ${ns}
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: ${immagine_minio}
+          envFrom:
+            - secretRef:
+                name: minio
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" &&
+              mc mb --ignore-existing local/biodistretto &&
+              mc anonymous set download local/biodistretto

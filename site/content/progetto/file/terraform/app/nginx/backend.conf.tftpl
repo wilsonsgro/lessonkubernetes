@@ -1,0 +1,39 @@
+# Vhost del backend in Kubernetes: come docker/config/nginx/backend.biodistretto.conf.
+server {
+    listen 443 ssl proxy_protocol;
+    server_name backend.${dominio};
+
+    ssl_certificate     /etc/nginx/tls/tls.crt;
+    ssl_certificate_key /etc/nginx/tls/tls.key;
+
+    set_real_ip_from 0.0.0.0/0;
+    real_ip_header proxy_protocol;
+
+    set $cors_origin "";
+    if ($http_origin ~* ^https://backend\.${replace(dominio, ".", "\\.")}$) {
+        set $cors_origin $http_origin;
+    }
+
+    client_max_body_size 110m;
+
+    set $backend_prefix "";
+
+    location /media/ {
+        proxy_pass http://minio:9000/biodistretto/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_hide_header x-amz-id-2;
+        proxy_hide_header x-amz-request-id;
+        proxy_buffering off;
+        proxy_set_header Authorization "";
+        proxy_set_header Cookie "";
+        limit_except GET HEAD OPTIONS { deny all; }
+    }
+
+    location / {
+        set $backend_path $uri;
+        include /etc/nginx/backend_prefix.conf;
+    }
+}

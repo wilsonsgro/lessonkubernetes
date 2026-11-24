@@ -5,6 +5,11 @@ Gli stessi comandi delle lezioni di **Kubernetes & Helm** e di **Terraform & Ans
 ogni comando prima di eseguirlo**. Funziona così: lanci lo script, leggi cosa sta per
 succedere, premi Invio e guardi l'output. Dopo, ricopi i comandi a mano per impararli.
 
+Le stesse lezioni, con appunti, quiz, glossario e simulazioni, sono anche un sito statico in
+`site/`, servito da nginx su http://lessons.kubernates.local: lezioni 01–09 e approfondimenti 21
+(HAProxy), 22 (Terraform), 23 (Ansible) e 24 (il Biodistretto, vedi sezione 10). Build e test
+girano solo in Docker: istruzioni in `site/README.md`.
+
 Tutto gira su questo PC (Ubuntu, `192.168.1.79`), senza cloud.
 
 ---
@@ -340,6 +345,7 @@ bash argocd/01-installa-argocd.sh     # poi 02, 03, 04 in ordine; 05 facoltativo
 | `argocd/*.md` | la spiegazione di ogni script di Argo CD (01–05, 99), di `comune.sh` e di `gitea.yaml` |
 | `lezioni/` | copia dei file delle lezioni (manifest, `.tf`, playbook): **leggili** mentre lo script li applica |
 | `lezioni/kubernetes/*.md` | la spiegazione di ogni lezione Kubernetes (01–20): cosa fa il file, passo per passo lo script guidato, trappole, esercizi |
+| `site/` | il sito didattico (Node in Docker): sorgenti in `site/content/`, build in `site/dist/` (non in git); vedi `site/README.md` |
 | `lavoro/` | la creano gli script: chart Helm, overlay Kustomize, progetti Terraform con il loro state, inventari Ansible. Puoi cancellarla quando vuoi |
 
 Per rifare una lezione Terraform da zero, cancella la sua cartella dopo il destroy,
@@ -417,3 +423,9 @@ kubectl --context biodistretto -n biodistretto get pods -o wide
 ```
 
 I `grep` dei riquadri sono stati controllati uno per uno sui file del commit `3c5a481`.
+
+Sul sito la **lezione 24** mette insieme il progetto: il README come spiegazione, 37 file
+(Ansible, i due stack Terraform, i manifest, nginx, Docker), i comandi del README e un quiz. Lo
+state di Terraform, i piani, `docker/.env`, `.cache/` e il certificato restano fuori, e
+l'indirizzo del laboratorio è sostituito da `IP-DEL-LAB`. Per riallinearla dopo un cambio nel
+progetto: `npm run importa:progetto` nel container (vedi `site/README.md`).

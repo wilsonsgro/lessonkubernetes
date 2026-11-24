@@ -1,0 +1,11 @@
+# Serves the static build of the Kubernetes lessons site (../dist) at lessons.kubernates.local.
+services:
+  nginx:
+    container_name: lessons-nginx
+    image: nginx:1.27
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ../dist:/usr/share/nginx/html:ro
+      - ./config/default.conf:/etc/nginx/conf.d/default.conf:ro

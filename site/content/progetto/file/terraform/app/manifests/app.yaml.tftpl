@@ -1,0 +1,270 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: ${ns}
+spec:
+  selector:
+    app: backend
+  ports:
+    - name: fpm
+      port: 9000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: ${ns}
+spec:
+  replicas: ${repliche}
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+      annotations:
+        biodistretto/config: "${checksum_backend}"
+    spec:
+      hostAliases:
+        - ip: "${ip_nginx}"
+          hostnames: ["www.${dominio}", "${dominio}", "backend.${dominio}"]
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: backend
+      containers:
+        - name: backend
+          image: ${immagine_backend}
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: backend
+            - secretRef:
+                name: backend
+          ports:
+            - containerPort: 9000
+          readinessProbe:
+            tcpSocket:
+              port: 9000
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 9000
+            initialDelaySeconds: 40
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              memory: 768Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: ${ns}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+      annotations:
+        biodistretto/config: "${checksum_backend}"
+    spec:
+      hostAliases:
+        - ip: "${ip_nginx}"
+          hostnames: ["www.${dominio}", "${dominio}", "backend.${dominio}"]
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: worker
+          image: ${immagine_backend}
+          imagePullPolicy: IfNotPresent
+          command: ["php", "artisan", "queue:work", "redis", "--sleep=3", "--tries=3", "--max-time=3600"]
+          envFrom:
+            - configMapRef:
+                name: backend
+            - secretRef:
+                name: backend
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: ${ns}
+spec:
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: ${ns}
+spec:
+  replicas: ${repliche}
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: frontend
+      containers:
+        - name: frontend
+          image: ${immagine_frontend}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: ${ns}
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  clusterIP: ${ip_nginx}
+  selector:
+    app: nginx
+  ports:
+    - name: http
+      port: 80
+      nodePort: ${nodeport_http}
+    - name: https
+      port: 443
+      nodePort: ${nodeport_https}
+    - name: salute
+      port: 8081
+      nodePort: ${nodeport_salute}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: ${ns}
+spec:
+  replicas: ${repliche}
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+      annotations:
+        biodistretto/config: "${checksum_nginx}"
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: nginx
+      containers:
+        - name: nginx
+          image: nginx:1.27
+          ports:
+            - containerPort: 80
+            - containerPort: 443
+            - containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: conf
+              mountPath: /etc/nginx/proxy_common.conf
+              subPath: proxy_common.conf
+            - name: conf
+              mountPath: /etc/nginx/backend_prefix.conf
+              subPath: backend_prefix.conf
+            - name: siti
+              mountPath: /etc/nginx/sites-enabled
+            - name: conf-d
+              mountPath: /etc/nginx/conf.d
+            - name: tls
+              mountPath: /etc/nginx/tls
+              readOnly: true
+            - name: accesso
+              mountPath: /etc/nginx/.htpasswd
+              subPath: htpasswd
+      volumes:
+        - name: conf
+          configMap:
+            name: nginx
+        - name: siti
+          configMap:
+            name: nginx
+            items:
+              - key: www.conf
+                path: www.conf
+              - key: backend.conf
+                path: backend.conf
+              - key: bordo.conf
+                path: bordo.conf
+        - name: conf-d
+          emptyDir: {}
+        - name: tls
+          secret:
+            secretName: nginx-tls
+        - name: accesso
+          secret:
+            secretName: nginx-accesso

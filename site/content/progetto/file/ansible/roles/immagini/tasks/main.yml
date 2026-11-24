@@ -1,0 +1,34 @@
+- name: Immagine backend
+  ansible.builtin.command:
+    argv: ["{{ k8s_dir }}/docker/build.sh", biodistretto/backend, "{{ progetto_dir }}/src/backend", ""]
+  register: build_backend
+  changed_when: false
+
+- name: Immagine frontend
+  ansible.builtin.command:
+    argv:
+      - "{{ k8s_dir }}/docker/build.sh"
+      - biodistretto/frontend
+      - "{{ progetto_dir }}/src/frontend"
+      - "{{ k8s_dir }}/docker/frontend"
+      - --build-arg
+      - "VITE_API_BASE_URL=https://www.{{ dominio }}/api"
+  register: build_frontend
+  changed_when: false
+
+- name: Tag delle immagini
+  ansible.builtin.set_fact:
+    immagine_backend: "{{ build_backend.stdout_lines | last }}"
+    immagine_frontend: "{{ build_frontend.stdout_lines | last }}"
+
+- name: Immagini già nei nodi
+  ansible.builtin.command: "minikube -p {{ nome_cluster }} image ls"
+  register: immagini_nodi
+  changed_when: false
+
+- name: Carica nei nodi le immagini nuove
+  ansible.builtin.command: "minikube -p {{ nome_cluster }} image load {{ item }}"
+  loop:
+    - "{{ immagine_backend }}"
+    - "{{ immagine_frontend }}"
+  when: ("docker.io/" ~ item) not in immagini_nodi.stdout_lines

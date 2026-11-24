@@ -1,0 +1,34 @@
+[
+ {
+  "concetto": "HAProxy davanti ai NodePort",
+  "da": "21",
+  "verso": [
+   "24"
+  ],
+  "perche": "Il Biodistretto mette HAProxy sull'host in mode tcp, con PROXY protocol e controllo di salute sui NodePort di nginx"
+ },
+ {
+  "concetto": "Stack Terraform separati",
+  "da": "22",
+  "verso": [
+   "24"
+  ],
+  "perche": "Due stack (cluster e app) con state separati, manifest decodificati e kubernetes_manifest con for_each"
+ },
+ {
+  "concetto": "Ansible lancia Terraform",
+  "da": "23",
+  "verso": [
+   "24"
+  ],
+  "perche": "La catena della parte 10 al contrario: Ansible chiama Terraform, ne legge gli output e scrive HAProxy dai nodi reali"
+ },
+ {
+  "concetto": "Checksum della config sul Pod",
+  "da": "04",
+  "verso": [
+   "24"
+  ],
+  "perche": "L'annotazione biodistretto/config con sha256 fa ripartire i Pod quando cambia la configurazione"
+ }
+]

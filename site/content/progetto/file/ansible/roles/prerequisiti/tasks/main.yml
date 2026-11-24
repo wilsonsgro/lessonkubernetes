@@ -1,0 +1,18 @@
+- name: Strumenti presenti
+  ansible.builtin.command: "bash -c 'command -v {{ item }}'"
+  loop: [docker, minikube, terraform, kubectl, tar]
+  changed_when: false
+
+- name: Libreria docker per Ansible
+  ansible.builtin.command: "{{ ansible_playbook_python }} -c 'import docker'"
+  changed_when: false
+
+- name: Legge vm.max_map_count
+  ansible.builtin.command: sysctl -n vm.max_map_count
+  register: max_map
+  changed_when: false
+
+- name: Elasticsearch ha bisogno di vm.max_map_count >= 262144
+  ansible.builtin.assert:
+    that: max_map.stdout | int >= 262144
+    fail_msg: "serve: sudo sysctl -w vm.max_map_count=262144"

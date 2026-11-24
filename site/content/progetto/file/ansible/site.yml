@@ -1,0 +1,11 @@
+- name: Biodistretto su minikube
+  hosts: lab
+  gather_facts: true
+  roles:
+    - { role: prerequisiti, tags: [prerequisiti] }
+    - { role: cluster, tags: [cluster] }
+    - { role: immagini, tags: [immagini] }
+    - { role: app, tags: [app] }
+    - { role: dati, tags: [dati] }
+    - { role: haproxy, tags: [haproxy] }
+    - { role: verifica, tags: [verifica] }

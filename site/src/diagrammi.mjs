@@ -1,0 +1,343 @@
+// One teaching diagram per lesson; nodes carry step keys that scrolling headings light up. Names match the course files.
+import { esc } from './markdown.mjs';
+
+const B = (x, y, w, h, righe, k = '', cls = '') =>
+  `<g class="nodo ${cls}" data-k="${k}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6"/>${[].concat(righe).map((t, i, a) =>
+    `<text x="${x + w / 2}" y="${y + h / 2 + (i - (a.length - 1) / 2) * 15 + 4}" text-anchor="middle"${i ? ' class="sotto"' : ''}>${esc(t)}</text>`).join('')}</g>`;
+const F = (d, k = '', cls = '') => `<path class="filo ${cls}" data-k="${k}" d="${d}" marker-end="url(#freccia)"/>`;
+const T = (x, y, t, cls = 'nota') => `<text x="${x}" y="${y}" class="${cls}">${esc(t)}</text>`;
+
+const D = {
+  '01': {
+    titolo: 'Riconciliazione: chi osserva chi',
+    vb: '0 0 360 330',
+    corpo: [
+      B(10, 10, 90, 36, 'kubectl', 'kubectl'), F('M100 28 H140', 'kubectl api'),
+      B(140, 10, 120, 36, ['kube-apiserver', 'authn · admission'], 'api'), F('M260 28 H290', 'etcd'), B(290, 10, 62, 36, ['etcd', 'Raft'], 'etcd'),
+      B(20, 90, 150, 40, ['controller-manager', 'Deployment → RS → Pod'], 'ctrl'), B(190, 90, 150, 40, ['kube-scheduler', 'filtro → punteggio'], 'sched'),
+      F('M95 90 V60 H180 V46', 'ctrl'), F('M265 90 V60 H220 V46', 'sched'),
+      T(14, 160, 'NODO'), B(20, 170, 150, 40, ['kubelet', 'probe · status'], 'kubelet'), B(190, 170, 150, 40, ['kube-proxy', 'Service → regole'], 'proxy'),
+      F('M95 170 V150 H200 V46', 'kubelet'),
+      B(20, 240, 150, 40, ['runtime (CRI)', 'containerd'], 'kubelet cri'), F('M95 210 V240', 'kubelet cri'),
+      B(190, 240, 150, 40, ['CNI (Calico)', 'IP a ogni Pod'], 'cni'),
+      T(14, 310, 'Nessuno chiama il successivo: ognuno fa watch sull\'apiserver.'),
+    ],
+    passi: [
+      ['kubectl api', /contesto|guardia|kubectl|apply/i, 'kubectl parla solo con l\'apiserver, che valida e scrive in etcd.'],
+      ['etcd', /etcd|quorum/i, 'etcd: quorum = floor(N/2)+1, per questo 3 o 5 membri.'],
+      ['ctrl', /controller|riconcil|catena|modello/i, 'I controller confrontano spec e status e correggono.'],
+      ['sched', /scheduler/i, 'Lo scheduler assegna un nodo ai Pod che non ce l\'hanno.'],
+      ['kubelet cri', /kubelet|nodo|crea|esplora/i, 'Il kubelet avvia i container del suo nodo tramite CRI.'],
+      ['cni proxy', /cni|rete|ip|proxy/i, 'CNI dà l\'IP; kube-proxy traduce i Service.'],
+    ],
+  },
+  '02': {
+    titolo: 'Rolling update: maxSurge 1, maxUnavailable 0',
+    vb: '0 0 360 300',
+    corpo: [
+      B(110, 10, 140, 36, ['Deployment web', 'replicas: 3'], 'deploy'),
+      F('M150 46 V80', 'rsold'), F('M210 46 V80', 'rsnew'),
+      B(20, 80, 150, 36, ['ReplicaSet vecchio', 'scende → 0'], 'rsold'), B(190, 80, 150, 36, ['ReplicaSet nuovo', 'sale → 3'], 'rsnew'),
+      B(20, 140, 45, 30, 'Pod', 'rsold', 'pod'), B(72, 140, 45, 30, 'Pod', 'rsold', 'pod'), B(124, 140, 45, 30, 'Pod', 'rsold', 'pod'),
+      B(190, 140, 45, 30, 'Pod', 'rsnew', 'pod'), B(242, 140, 45, 30, 'Pod', 'rsnew', 'pod'), B(294, 140, 45, 30, 'Pod', 'rsnew', 'pod'),
+      B(20, 200, 320, 36, ['readiness OK → il Pod entra negli endpoint', 'liveness KO → restart · startup protegge l\'avvio'], 'probe'),
+      B(20, 252, 320, 36, ['QoS: Guaranteed · Burstable · BestEffort', 'requests guidano lo scheduler, limits il runtime'], 'qos'),
+    ],
+    passi: [
+      ['deploy', /deployment|campo|namespace/i, 'Il Deployment descrive lo stato voluto; non crea Pod da sé.'],
+      ['rsold rsnew', /rollout|rolling|replicaset|rollback|storia/i, 'Ogni rollout è un ReplicaSet nuovo; il rollback rimette in scala il vecchio.'],
+      ['probe', /probe|readiness|liveness|startup/i, 'Running non vuol dire pronto: decide la readiness.'],
+      ['qos', /qos|risors|request|limit|oom/i, 'Requests e limits decidono QoS, scheduling e sfratti.'],
+    ],
+  },
+  '03': {
+    titolo: 'Percorso di una richiesta nel cluster',
+    vb: '0 0 360 320',
+    corpo: [
+      B(10, 10, 100, 36, 'Client', 'client'), F('M110 28 H140', 'ingress'),
+      B(140, 10, 210, 36, ['ingress-nginx (classe nginx)', 'Ingress web: web.lab.local'], 'ingress'),
+      F('M245 46 V80', 'svc'), B(140, 80, 210, 36, ['Service web (ClusterIP)', '80 → targetPort http'], 'svc'),
+      F('M245 116 V150', 'eps'), B(140, 150, 210, 36, ['EndpointSlice', 'solo i Pod Ready'], 'eps'),
+      F('M245 186 V230', 'pod'),
+      B(140, 230, 100, 36, ['Pod web', 'Ready'], 'pod'), B(250, 230, 100, 36, ['Pod web', 'non Ready'], 'eps', 'spento'),
+      B(10, 150, 115, 116, ['NetworkPolicy', 'default-deny', '+ web-allow', 'ruolo=client', 'OR ingress-nginx'], 'netpol'),
+      T(10, 300, 'Il DNS del Service risolve al ClusterIP; il traffico va ai Pod IP.'),
+    ],
+    passi: [
+      ['client ingress', /ingress|richiesta|percorso/i, 'L\'Ingress decide host e path; il controller è un Pod come gli altri.'],
+      ['svc', /service|dns|clusterip|selector/i, 'Il Service seleziona i Pod per label e dà un nome stabile.'],
+      ['eps pod', /endpoint|ready|readiness/i, 'Negli EndpointSlice entrano solo i Pod pronti.'],
+      ['netpol', /networkpolic|policy|deny|or|and/i, 'Le NetworkPolicy le applica il CNI: due elementi = OR, uno con due selettori = AND.'],
+    ],
+  },
+  '04': {
+    titolo: 'Configurazione: cosa vede il Pod, e quando',
+    vb: '0 0 360 300',
+    corpo: [
+      B(10, 10, 160, 40, ['ConfigMap app-config'], 'cm'), B(190, 10, 160, 40, ['Secret db', 'base64, non cifrato'], 'secret'),
+      F('M60 50 V90', 'env'), F('M120 50 V90', 'vol'), F('M270 50 V90', 'secret'),
+      B(10, 90, 105, 50, ['env', 'letto all\'avvio', 'mai aggiornato'], 'env'),
+      B(125, 90, 105, 50, ['volume', 'aggiornato', 'al sync'], 'vol'),
+      B(240, 90, 110, 50, ['subPath', 'mai', 'aggiornato'], 'vol subpath'),
+      B(10, 170, 340, 44, ['annotazione checksum/config nel pod template', 'cambia la config → cambia il template → rollout'], 'checksum'),
+      F('M180 214 V240', 'checksum'), B(110, 240, 140, 36, ['Deployment conf', 'nuovo ReplicaSet'], 'checksum'),
+    ],
+    passi: [
+      ['cm', /configmap|app-config/i, 'La ConfigMap contiene configurazione in chiaro.'],
+      ['secret', /secret|gitops|segret/i, 'Un Secret è solo base64: la protezione la danno RBAC e la cifratura di etcd.'],
+      ['env vol', /env|volume|aggiorn|esperimento|accade/i, 'Env fisso all\'avvio, volume aggiornato al sync, subPath mai.'],
+      ['checksum', /checksum|rollout|campo/i, 'Il checksum nel template forza un rollout coerente (lo ritrovi in Helm, lezione 09).'],
+    ],
+  },
+  '05': {
+    titolo: 'StatefulSet: identità e disco per ogni Pod',
+    vb: '0 0 360 320',
+    corpo: [
+      B(10, 10, 200, 36, ['StatefulSet db', 'replicas: 3 · OrderedReady'], 'sts'), B(220, 10, 130, 36, ['Service headless', 'db-0.db…'], 'dns'),
+      ...[0, 1, 2].flatMap(i => [
+        B(10 + i * 115, 70, 105, 32, `db-${i}`, 'sts pod'),
+        F(`M${62 + i * 115} 102 V125`, 'pvc'),
+        B(10 + i * 115, 125, 105, 32, `PVC dati-db-${i}`, 'pvc'),
+        F(`M${62 + i * 115} 157 V180`, 'pv'),
+        B(10 + i * 115, 180, 105, 32, 'PV', 'pv'),
+      ]),
+      B(10, 232, 340, 32, 'StorageClass di default (storageClassName omesso) crea i PV', 'sc'),
+      B(10, 278, 340, 32, ['PodDisruptionBudget: limita gli sfratti volontari (drain)'], 'pdb'),
+    ],
+    passi: [
+      ['sts', /statefulset|ordin|identit|modello/i, 'Nomi stabili db-0, db-1, db-2 e avvio in ordine.'],
+      ['dns', /dns|headless/i, 'Il Service headless dà un nome DNS a ogni Pod.'],
+      ['pvc pv sc', /pvc|pv\b|storage|volume|persist|relazione|disco/i, 'Un PVC per Pod: sopravvive alla cancellazione del Pod.'],
+      ['pdb', /pdb|drain|disruption/i, 'Il PDB protegge dai drain, non dai guasti del nodo.'],
+      ['sts', /partition|aggiorn/i, 'Con partition N si aggiornano solo gli ordinali ≥ N, dal più alto.'],
+    ],
+  },
+  '06': {
+    titolo: 'DOVE (scheduling) e QUANTI (HPA)',
+    vb: '0 0 360 320',
+    corpo: [
+      T(10, 16, 'SCHEDULER', 'titoletto'),
+      B(10, 24, 105, 40, ['filtro', 'risorse · taint'], 'filtro'), F('M115 44 H128', 'punteggio'),
+      B(128, 24, 105, 40, ['punteggio', 'affinity · spread'], 'punteggio'), F('M233 44 H245', 'punteggio'),
+      B(245, 24, 105, 40, ['bind', 'nodo scelto'], 'punteggio'),
+      B(10, 80, 165, 36, ['lab', 'nodo libero'], 'filtro'), B(185, 80, 165, 36, ['lab-m02', 'taint dedicato=batch'], 'taint'),
+      T(10, 150, 'HPA', 'titoletto'),
+      B(10, 160, 105, 40, ['metrics-server', 'CPU media'], 'metrics'), F('M115 180 H128', 'hpa'),
+      B(128, 160, 105, 40, ['HPA api', 'target 60%'], 'hpa'), F('M233 180 H245', 'hpa'),
+      B(245, 160, 105, 40, ['Deployment api', '2 … 8 repliche'], 'hpa'),
+      B(10, 220, 340, 44, ['desiderate = ceil(attuali × valore / target)', 'ceil(2 × 375 / 60) = 13 → tagliate a 8'], 'hpa formula'),
+      B(10, 276, 340, 32, 'behavior: su +100% ogni 15 s · giù 1 Pod/60 s, finestra 120 s', 'behavior'),
+    ],
+    passi: [
+      ['filtro punteggio', /schedul|affinit|spread|nodo/i, 'Prima si scartano i nodi, poi si dà un punteggio agli altri.'],
+      ['taint', /taint|toleration/i, 'Il taint respinge chi non lo tollera; tollerare non vuol dire richiedere.'],
+      ['hpa formula metrics', /hpa|calcolo|formula|autoscal/i, 'L\'HPA usa la percentuale delle requests: senza requests non calcola.'],
+      ['behavior', /behavior|stabiliz|dipendenz/i, 'Salita rapida, discesa frenata.'],
+    ],
+  },
+  '07': {
+    titolo: 'RBAC e Pod Security in lab-sicuro',
+    vb: '0 0 360 300',
+    corpo: [
+      B(10, 10, 160, 40, ['ServiceAccount', 'deployer'], 'sa'), F('M170 30 H190', 'rb'),
+      B(190, 10, 160, 40, ['RoleBinding', 'deployer'], 'rb'), F('M270 50 V80', 'role'),
+      B(110, 80, 240, 64, ['Role deployer (solo lab-sicuro)', 'pods, services, configmaps: get/list/watch', 'deployments: + create/update/patch', 'deployments/scale: patch'], 'role'),
+      B(10, 80, 90, 64, ['nessun', '«deny»', 'additivo'], 'role'),
+      B(10, 170, 340, 50, ['Namespace lab-sicuro: PSA enforce=restricted', 'non-root · no escalation · drop ALL · seccomp'], 'psa'),
+      B(10, 236, 340, 44, ['kubectl auth can-i … --as=system:serviceaccount:lab-sicuro:deployer'], 'cani'),
+    ],
+    passi: [
+      ['sa', /serviceaccount|identit|token|modello/i, 'Il Pod ha un\'identità: il suo ServiceAccount.'],
+      ['rb role', /role|binding|rbac|namespace/i, 'Un Role vale nel suo namespace; il binding lo dà a un soggetto.'],
+      ['cani', /can-i|verific|prova/i, '`auth can-i` risponde senza provare davvero.'],
+      ['psa', /psa|pod security|restricted|securitycontext|trappol/i, 'PSA restricted rifiuta i Pod che chiedono privilegi.'],
+    ],
+  },
+  '08': {
+    titolo: 'Metodo di diagnosi: prova, non supporre',
+    vb: '0 0 360 320',
+    corpo: [
+      B(10, 10, 80, 40, ['get', 'stato'], 'get'), F('M90 30 H100', 'describe'),
+      B(100, 10, 80, 40, ['describe', 'eventi'], 'describe'), F('M180 30 H190', 'logs'),
+      B(190, 10, 80, 40, ['logs', '--previous'], 'logs'), F('M270 30 H280', 'debug'),
+      B(280, 10, 70, 40, ['exec', 'debug'], 'debug'),
+      ...[['ImagePullBackOff', 'immagine/tag', 'describe'], ['CrashLoopBackOff', 'logs --previous', 'logs'], ['OOMKilled', 'limits memoria', 'describe'], ['Pending', 'risorse/taint', 'describe'], ['Service senza endpoint', 'selector/readiness', 'get']]
+        .map(([a, b, k], i) => B(10, 70 + i * 48, 340, 40, [a, b], `${k} guasto`)),
+    ],
+    passi: [
+      ['get', /stato|get|modello/i, 'Parti dallo stato: STATUS e RESTARTS dicono dove guardare.'],
+      ['describe', /describe|eventi|guast/i, 'Gli eventi spiegano Pending, ImagePull e OOM.'],
+      ['logs', /log|crash/i, 'Per un CrashLoop servono i log del container precedente.'],
+      ['debug', /debug|exec/i, 'kubectl debug quando l\'immagine non ha una shell.'],
+    ],
+  },
+  '09': {
+    titolo: 'Helm: chart, release, revisioni',
+    vb: '0 0 360 310',
+    corpo: [
+      B(10, 10, 160, 50, ['Chart eco', 'templates/ + values.yaml'], 'chart'), F('M170 35 H190', 'template'),
+      B(190, 10, 160, 50, ['helm template', 'manifest renderizzati'], 'template'),
+      B(10, 80, 340, 40, ['checksum/config: {{ include … | sha256sum }}', 'config cambiata → rollout (lezioni 02 e 04)'], 'checksum'),
+      T(10, 146, 'RELEASE eco', 'titoletto'),
+      ...[['rev 1', 'install'], ['rev 2', 'messaggio'], ['rev 3', 'failed'], ['rev 4', 'ripristino'], ['rev 5', 'rollback 1']].map((t, i) => B(10 + i * 69, 154, 63, 40, t, i === 2 ? 'fallito release' : i > 2 ? 'rollback release' : 'release', i === 2 ? 'spento' : '')),
+      B(10, 214, 340, 40, ['Secret di tipo helm.sh/release.v1', 'la storia vive nel namespace: proteggila con RBAC'], 'release secret'),
+      B(10, 264, 340, 36, ['lint → template → install → upgrade → rollback'], 'ciclo'),
+    ],
+    passi: [
+      ['chart', /chart|eco|modello/i, 'Un chart è un pacchetto di template più i valori.'],
+      ['template', /template|leggere/i, 'helm template mostra cosa verrebbe applicato, senza toccare il cluster.'],
+      ['checksum', /checksum|riflessione|02 e 04/i, 'Lo stesso checksum della lezione 04, generato dal template.'],
+      ['fallito', /fallit|rollback-on-failure|v9\\.9\\.9/i, 'Tag inesistente: la rev 3 fallisce e --rollback-on-failure crea la 4.'],
+      ['release rollback secret ciclo', /release|ciclo|rollback|upgrade|attenzion/i, 'Il rollback crea una revisione nuova con la configurazione vecchia.'],
+    ],
+  },
+  '21': {
+    titolo: 'Il percorso esatto del traffico',
+    vb: '0 0 360 400',
+    corpo: [
+      B(10, 10, 90, 36, 'Client', 'client'), F('M100 28 H120', 'nodeport'),
+      B(120, 10, 230, 36, ['IP_nodo:30080', 'qualunque nodo'], 'nodeport'),
+      F('M235 46 V66', 'nodeport'),
+      B(120, 66, 230, 40, ['Service NodePort del controller', 'controller.service.nodePorts'], 'nodeport espone'),
+      F('M180 106 V130', 'ha'), F('M290 106 V130', 'ha'),
+      B(120, 130, 110, 44, ['HAProxy A', 'stick-table A'], 'ha stick', 'repA'), B(240, 130, 110, 44, ['HAProxy B', 'stick-table B'], 'ha stick', 'repB'),
+      B(10, 130, 100, 44, ['Runtime API', 'add/del server'], 'runtime'),
+      F('M235 174 V196', 'frontend'),
+      B(120, 196, 230, 40, ['frontend: Host app.lab.local', '/blu · /verde (path-rewrite)'], 'frontend instrada'),
+      F('M180 236 V258', 'backend'), F('M290 236 V258', 'backend'),
+      B(120, 258, 110, 40, ['backend blu', 'roundrobin'], 'backend algo'), B(240, 258, 110, 40, ['backend verde', 'leastconn'], 'backend algo'),
+      F('M175 298 V320', 'pod'), F('M295 298 V320', 'pod'),
+      B(120, 320, 110, 36, ['Pod IP blu', '3 repliche'], 'pod', 'blu'), B(240, 320, 110, 36, ['Pod IP verde', '2 repliche'], 'pod', 'verde'),
+      B(10, 196, 100, 102, ['Ingress', '(regole)', 'EndpointSlice', '→ haproxy.cfg'], 'eps instrada'),
+      T(10, 380, 'NodePort espone HAProxy; gli Ingress decidono l\'instradamento.'),
+    ],
+    passi: [
+      ['frontend backend algo', /negozio|\btls\b|cifratur|passthrough|struttura del file|\d\. il percorso di una richiesta|che cos.è haproxy|comandi da conoscere|domande d.esame|completo e commentato|reverse proxy, load balancing|tre modalità/i, 'Approfondimento: fuori da Kubernetes frontend, ACL e backend si scrivono a mano in haproxy.cfg; qui il controller li genera dagli Ingress.'],
+      ['client nodeport frontend backend pod', /percorso|obiettivo|reverse|in una frase|architettura/i, 'Dal client al Pod IP: ogni salto è un oggetto diverso.'],
+      ['nodeport espone', /nodeport|porte|ingresso/i, 'controller.service.nodePorts espone HAProxy; non sono le porte delle app.'],
+      ['ha', /controller|repliche|alta disponibilit|ha\b|guasto/i, 'Due repliche su worker diversi: se A non è Ready, il Service manda a B.'],
+      ['eps instrada frontend', /endpoint|destinazion|controllo automatico|haproxy\.cfg|ingress/i, 'Il controller legge Ingress ed EndpointSlice e scrive i server con i Pod IP.'],
+      ['backend algo', /algoritm|roundrobin|leastconn|bilanc/i, 'roundrobin per richieste brevi; leastconn per connessioni lunghe.'],
+      ['stick', /stick|rate|limit|stato locale/i, 'Ogni replica ha la sua stick-table: il limite si moltiplica.'],
+      ['runtime', /runtime|reload|statistich|stats/i, 'La Runtime API cambia i server senza reload.'],
+      ['ha nodeport', /troubleshoot|minikube|vincol|laboratorio|1 gib/i, 'Con 1 GiB per nodo il control plane è al limite: HAProxy va sui worker.'],
+    ],
+  },
+};
+
+D['22'] = {
+  titolo: 'Dal codice alle risorse, passando dallo state',
+  vb: '0 0 360 400',
+  corpo: [
+    B(120, 10, 230, 44, ['Codice HCL', 'main.tf · variabili · moduli'], 'codice moduli'),
+    F('M235 54 V66', 'init'),
+    B(120, 66, 230, 40, ['terraform init', 'provider + .terraform.lock.hcl'], 'init'),
+    F('M235 106 V122', 'test'),
+    B(120, 122, 230, 40, ['fmt · validate · test', 'contratti e check'], 'test'),
+    F('M235 162 V178', 'plan'),
+    B(120, 178, 230, 40, ['plan -out=piano.tfplan', 'diff codice · state · realtà'], 'plan'),
+    F('M235 218 V234', 'apply'),
+    B(120, 234, 230, 40, ['apply piano.tfplan', '+ crea · ~ modifica · -/+ ricrea'], 'apply'),
+    F('M235 274 V300', 'apply realta'),
+    B(120, 300, 230, 40, ['Docker locale', 'rete lab-iac · lab-web:8088'], 'realta'),
+    B(10, 122, 100, 76, ['terraform.tfstate', 'indirizzo ↔ ID', 'segreti in chiaro'], 'state'),
+    B(10, 210, 100, 44, ['backend remoto', 'pg · lock'], 'remoto state'),
+    F('M120 198 H110', 'plan state'), F('M120 250 H110', 'apply state'),
+    B(10, 300, 100, 40, ['drift', 'docker stop a mano'], 'drift'),
+    F('M110 320 H120', 'drift'),
+    T(10, 380, 'Terraform riconcilia solo quando lanci plan e apply.'),
+  ],
+  passi: [
+    ['codice init plan apply realta', /workflow|ciclo|in una frase|dove si colloca/i, 'Il giro completo: codice → init → plan salvato → apply → risorse reali.'],
+    ['drift realta', /drift|refresh/i, 'Una modifica fatta a mano: plan la vede, -refresh-only la accetta, -replace ricrea.'],
+    ['init', /install|init|provider|versioni/i, 'init scarica il provider e blocca le versioni nel lock file.'],
+    ['codice moduli', /modul|ambient|workspace|generatore/i, 'Moduli: cartelle riusabili e versionate; il root configura provider e backend.'],
+    ['codice state', /moved|import|removed|senza distruggere/i, 'import adotta, moved rinomina, removed lascia andare: niente distruzioni inutili.'],
+    ['test plan', /test|check|pipeline|qualit/i, 'Statico → contratti → test → check; in pipeline si applica lo stesso piano.'],
+    ['codice plan', /variabil|for_each|count|espression|linguaggio|hcl/i, 'Variabili, locals e output; for_each per chiave: il plan tocca solo ciò che cambia.'],
+    ['state remoto', /stato|state|backend|lock/i, 'Lo state collega indirizzi e ID reali; in squadra sta su un backend con lock.'],
+    ['plan apply', /plan|apply|passi dello script|com.è fatto|destroy|trappol/i, 'plan calcola il diff e lo salva; apply esegue quel piano e aggiorna lo state.'],
+    ['realta', /laboratorio|docker|cartella|pulizia|dipendenze|prova/i, 'Il «cloud» del laboratorio è il Docker locale: rete lab-iac, container lab-web sulla 8088.'],
+  ],
+};
+
+D['23'] = {
+  titolo: 'Dal control node ai nodi, e la catena con Terraform',
+  vb: '0 0 360 400',
+  corpo: [
+    B(10, 10, 150, 44, ['control node', 'ansible-playbook · pipx'], 'control'),
+    B(200, 10, 150, 44, ['inventory.yml', 'gruppi · variabili'], 'inventario'),
+    F('M200 32 H160', 'inventario'),
+    F('M85 54 V70', 'playbook'),
+    B(10, 70, 340, 40, ['site.yml: play → task in ordine', 'handler a fine play · validate'], 'playbook'),
+    F('M90 110 V126', 'ruolo'), F('M270 110 V126', 'vault'),
+    B(10, 126, 160, 40, ['ruolo sito_nginx', 'defaults · argument_specs'], 'ruolo'),
+    B(190, 126, 160, 40, ['Vault · no_log', 'in git solo il cifrato'], 'vault'),
+    F('M180 166 V182', 'modulo'),
+    B(10, 182, 340, 40, ['modulo Python → risposta JSON', 'changed solo se serve (idempotenza)'], 'modulo'),
+    F('M60 222 V238', 'modulo nodi'), F('M180 222 V238', 'modulo nodi'), F('M300 222 V238', 'lb'),
+    B(10, 238, 100, 44, ['web1', 'nginx :80 · :8080'], 'nodi'),
+    B(130, 238, 100, 44, ['web2', 'serial: 1'], 'nodi rolling'),
+    B(250, 238, 100, 44, ['db1', '/etc/lb/backends'], 'lb rolling'),
+    T(10, 298, 'connessione community.docker.docker, niente SSH'),
+    B(10, 310, 340, 44, ['terraform apply → catena-app01, app02…', 'local_file + templatefile scrivono l\'inventario'], 'catena'),
+    F('M350 332 H356 V32 H350', 'catena inventario'),
+    T(10, 384, 'Terraform crea i nodi, Ansible li configura.'),
+  ],
+  passi: [
+    ['vault', /vault|segret|no_log/i, 'Vault cifra il segreto in git; no_log lo tiene fuori dall\'output e dai log.'],
+    ['lb rolling nodi', /rolling|lotto|serial|bilanciatore|prestazioni/i, 'Rolling a lotti: drain su db1 con delegate_to, aggiorna, verifica, rimetti. Chi fallisce resta fuori.'],
+    ['ruolo', /ruol|collection|molecule|argument|defaults|sito_nginx/i, 'Il ruolo: defaults come interfaccia, argument_specs come contratto controllato prima dei task.'],
+    ['catena inventario', /terraform|catena|main\.tf|template|mutabile|local_file|output/i, 'Terraform crea i nodi e scrive l\'inventario con gli IP; lo stesso playbook configura anche quelli nuovi.'],
+    ['playbook', /playbook|play|handler|task|validate|block|check/i, 'Play → task in ordine, host in parallelo; l\'handler gira una volta a fine play, solo se notificato.'],
+    ['modulo nodi', /idempot|modul|ad-hoc|comandi|passi dello script|com.è fatto/i, 'Ogni task copia un modulo sul nodo, lo esegue e legge il JSON: la seconda volta changed=0.'],
+    ['control inventario', /in una frase|agentless|inventario|variabil|precedenza|laboratorio|teoria|dipendenze|pulizia|trappol|riepilogo|prova|domande/i, 'Il control node legge l\'inventario: quali host, in quali gruppi, con quali variabili.'],
+  ],
+};
+
+D['24'] = {
+  titolo: 'Biodistretto: chi crea cosa, e dove passa una richiesta',
+  vb: '0 0 360 420',
+  corpo: [
+    B(10, 10, 340, 40, ['./deploy.sh → ansible-playbook site.yml', 'collection · libreria docker nel venv di pipx'], 'deploy'),
+    F('M180 50 V66', 'ansible'),
+    B(10, 66, 340, 40, ['Ansible: 7 ruoli, un tag ciascuno', 'prerequisiti · cluster · immagini · app · dati · haproxy · verifica'], 'ansible'),
+    F('M90 106 V122', 'tf-cluster'), F('M270 106 V122', 'tf-app'),
+    B(10, 122, 160, 44, ['Terraform cluster', 'minikube · kindnet · 2 nodi'], 'tf-cluster'),
+    B(190, 122, 160, 44, ['Terraform app', 'Secret · CA · for_each manifest'], 'tf-app'),
+    F('M90 166 V182', 'nodi'), F('M270 166 V182', 'nodi'),
+    B(10, 182, 340, 36, ['minikube biodistretto: 2 nodi, namespace biodistretto'], 'nodi'),
+    T(10, 236, 'Il traffico, dal browser ai Pod'),
+    B(10, 246, 100, 40, ['browser', '80 · 443'], 'richiesta'),
+    F('M110 266 H126', 'richiesta haproxy'),
+    B(126, 246, 224, 40, ['HAProxy sull\'host · mode tcp', 'send-proxy-v2 · httpchk :30081'], 'haproxy'),
+    F('M238 286 V302', 'nodeport'),
+    B(10, 302, 340, 36, ['NodePort 30080 / 30443 su ogni nodo · Local'], 'nodeport'),
+    F('M180 338 V350', 'nginx'),
+    B(10, 350, 340, 30, ['nginx, 2 repliche · proxy_protocol · TLS'], 'nginx'),
+    F('M60 380 V392', 'app'), F('M180 380 V392', 'app'), F('M300 380 V392', 'app'),
+    B(10, 392, 100, 24, ['frontend'], 'app'),
+    B(130, 392, 100, 24, ['backend PHP-FPM'], 'app'),
+    B(250, 392, 100, 24, ['MinIO /media'], 'app'),
+  ],
+  passi: [
+    ['tf-cluster nodi', /podman|bridge|kindnet|cni|trappol/i, 'Il provider minikube lasciava il bridge podman accanto a kindnet: IP doppi. cni = "kindnet" e bridge spento su ogni nodo.'],
+    ['haproxy nodeport', /haproxy|percorso di una richiesta|proxy|salute|healthz|nodeport/i, 'HAProxy in mode tcp manda il traffico ai NodePort; il controllo di salute su :30081 toglie i nodi senza nginx.'],
+    ['nginx app', /nginx|usarlo dal mac|certificat|tls|frontend|backend|media|minio/i, 'nginx termina il TLS e smista: / al frontend, /api al backend PHP-FPM, /media a MinIO.'],
+    ['tf-app', /terraform nel progetto|segret|password|state|manifest|for_each|checksum|tag dell|immagin/i, 'Lo stack app: Secret e password generate, CA e certificato, i manifest come kubernetes_manifest con for_each.'],
+    ['ansible', /ansible|ruol|catena|idempot|verifica|tag|differenze|riavvio/i, 'Ansible è il regista: lancia Terraform, legge gli output, scrive HAProxy e verifica che tutto risponda.'],
+    ['deploy', /in una frase|chi fa cosa|deploy|comandi|requisiti|biodistretto/i, 'Un solo comando, ./deploy.sh: rilanciato senza cambi non tocca niente.'],
+  ],
+};
+
+export function diagramma(id) {
+  const d = D[id];
+  if (!d) return '';
+  const passi = d.passi.map(([k, re, didascalia]) => ({ k, re: re.source, f: re.flags, didascalia }));
+  return `<figure class="diagramma" data-passi="${esc(JSON.stringify(passi))}">
+<figcaption><span class="diagramma-titolo">${esc(d.titolo)}</span><span class="diagramma-passo" aria-live="polite">Scorri il testo: il diagramma segue la sezione che stai leggendo.</span></figcaption>
+<svg viewBox="${d.vb}" role="img" aria-label="${esc(d.titolo)}"><defs><marker id="freccia" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z"/></marker></defs>${d.corpo.join('')}</svg>
+</figure>`;
+}
+
+export const LEZIONI_CON_DIAGRAMMA = Object.keys(D);

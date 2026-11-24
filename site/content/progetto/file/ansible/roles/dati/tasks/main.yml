@@ -1,0 +1,49 @@
+- name: Tabelle nel database
+  ansible.builtin.command: >-
+    {{ kubectl }} exec mariadb-0 -- sh -c
+    'mariadb -N -uroot -p"$MARIADB_ROOT_PASSWORD" -e "select count(*) from information_schema.tables where table_schema=\"biodistretto\""'
+  register: tabelle
+  changed_when: false
+
+- name: Tabelle nel dump
+  ansible.builtin.command: "grep -c '^CREATE TABLE' {{ dump_sql | quote }}"
+  register: tabelle_dump
+  changed_when: false
+  failed_when: false
+
+- name: Importa il dump nel database vuoto o rimasto a metà
+  ansible.builtin.shell: >-
+    {{ kubectl }} exec -i mariadb-0 -- sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" biodistretto' < {{ dump_sql | quote }}
+  when: dump_sql is file and tabelle.stdout | int < tabelle_dump.stdout | int
+  register: importato
+
+- name: Migrazioni Laravel
+  ansible.builtin.command: "{{ kubectl }} exec deploy/backend -- php artisan migrate --force"
+  register: migrazioni
+  changed_when: "'Nothing to migrate' not in migrazioni.stdout"
+
+- name: Oggetti nel bucket MinIO
+  ansible.builtin.command: >-
+    {{ kubectl }} exec minio-0 -- sh -c
+    'mc alias set k http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && mc ls --recursive k/biodistretto | wc -l'
+  register: oggetti
+  changed_when: false
+
+- name: Volume media dello stack docker
+  community.docker.docker_volume_info:
+    name: "{{ volume_media_docker }}"
+  register: volume_media
+
+- name: Porta i media dello stack docker nel bucket vuoto
+  ansible.builtin.include_tasks: media.yml
+  when: oggetti.stdout | int == 0 and volume_media.exists
+
+- name: Indice Elasticsearch
+  ansible.builtin.command: >-
+    {{ kubectl }} exec elasticsearch-0 -- curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9200/biodistretto
+  register: indice
+  changed_when: false
+
+- name: Ricostruisce l'indice di ricerca
+  ansible.builtin.command: "{{ kubectl }} exec deploy/backend -- php artisan search:reindex"
+  when: indice.stdout != '200' or importato is changed

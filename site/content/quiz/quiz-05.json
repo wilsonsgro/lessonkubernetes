@@ -1,0 +1,114 @@
+[
+ {
+  "id": "05-1",
+  "domanda": "Si cancella il Pod db-0 dello StatefulSet e si aspetta che torni Ready. Cosa mostra `cat /data/identita` nel lab?",
+  "opzioni": [
+   "Una sola riga, del Pod nuovo",
+   "Il file non esiste più",
+   "Due righe: il Pod nuovo ha ritrovato il disco del vecchio",
+   "Tre righe, una per ogni replica"
+  ],
+  "corretta": 2,
+  "spiegazione": "Il Pod rinasce con lo stesso nome e riusa il PVC dati-db-0: il container aggiunge una riga a ogni avvio, quindi le righe si accumulano. È la prova che il disco segue il nome.",
+  "fonte": "5. Il runner, passo per passo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "05-2",
+  "domanda": "Che cosa significa l'access mode ReadWriteOnce (RWO)?",
+  "opzioni": [
+   "Montabile in lettura-scrittura da un nodo alla volta",
+   "Montabile in lettura-scrittura da un solo Pod",
+   "Scrivibile una sola volta e poi in sola lettura",
+   "Montabile da più nodi tramite NFS"
+  ],
+  "corretta": 0,
+  "spiegazione": "RWO = un nodo, non necessariamente un Pod; ReadWriteOncePod (RWOP) è il modo per un solo Pod; RWX serve per più nodi con NFS/CephFS/EFS.",
+  "fonte": "1. La teoria nell'intestazione — La catena dello storage",
+  "tipo": "didattica"
+ },
+ {
+  "id": "05-3",
+  "domanda": "Con updateStrategy RollingUpdate e partition: 2 su uno StatefulSet di 3 repliche, quali Pod vengono aggiornati cambiando l'immagine?",
+  "opzioni": [
+   "Tutti e tre",
+   "Solo db-0 e db-1",
+   "Nessuno finché partition non torna a 0",
+   "Solo db-2 (ordinali ≥ 2)"
+  ],
+  "corretta": 3,
+  "spiegazione": "Con partition N > 0 si aggiornano solo gli ordinali ≥ N: è un canary manuale su db-2 prima di toccare db-0, spesso il primario.",
+  "fonte": "3. Lo StatefulSet db — Aggiornamento: partition",
+  "tipo": "didattica"
+ },
+ {
+  "id": "05-4",
+  "domanda": "Nel lab si scala lo StatefulSet db da 3 a 1 replica con whenScaled: Retain. Quanti PVC restano?",
+  "opzioni": [
+   "1, quello di db-0",
+   "3: i PVC delle repliche tolte restano, pronti per lo scale up",
+   "0, vengono cancellati tutti",
+   "2, quelli di db-1 e db-2"
+  ],
+  "corretta": 1,
+  "spiegazione": "Al passo 8 restano solo db-0 ma i PVC sono ancora 3; allo scale up db-1 e db-2 ritrovano i loro PVC.",
+  "fonte": "5. Il runner, passo per passo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "05-5",
+  "domanda": "Da cosa protegge un PodDisruptionBudget?",
+  "opzioni": [
+   "Dalle interruzioni volontarie come il drain di un nodo e le chiamate all'eviction API",
+   "Da un nodo che muore",
+   "Da un kubectl delete pod",
+   "Dagli OOMKilled"
+  ],
+  "corretta": 0,
+  "spiegazione": "Il PDB limita solo le interruzioni volontarie che passano dall'eviction API. Un nodo morto non chiede permesso e delete pod non passa dall'eviction.",
+  "fonte": "4. Il PodDisruptionBudget db",
+  "tipo": "didattica"
+ },
+ {
+  "id": "05-6",
+  "domanda": "Cosa succede con un PDB che ha minAvailable uguale al numero di repliche?",
+  "opzioni": [
+   "Il drain procede un Pod alla volta",
+   "Il PDB viene ignorato",
+   "Il drain si blocca per sempre, e con lui l'upgrade del cluster",
+   "Kubernetes scala automaticamente le repliche"
+  ],
+  "corretta": 2,
+  "spiegazione": "Nessuna interruzione è mai permessa: drain e upgrade restano bloccati. Su GKE/EKS è una causa frequente di upgrade bloccati; il rimedio è maxUnavailable: 1.",
+  "fonte": "7. La coda: domande da colloquio",
+  "tipo": "didattica"
+ },
+ {
+  "id": "05-7",
+  "domanda": "Dopo il drain di lab-m02, si esegue `kubectl uncordon lab-m02`. Che fine fanno i Pod db spostati sul nodo lab?",
+  "opzioni": [
+   "Tornano automaticamente su lab-m02",
+   "Vengono ricreati in ordine 0→1→2",
+   "Vanno in Pending finché non si fa rollout",
+   "Restano dove sono: il nodo riceverà solo Pod nuovi"
+  ],
+  "corretta": 3,
+  "spiegazione": "uncordon rende il nodo di nuovo schedulabile ma non ribilancia: servono rollout restart o un descheduler.",
+  "fonte": "5. Il runner, passo per passo",
+  "tipo": "didattica"
+ },
+ {
+  "id": "05-8",
+  "domanda": "A cosa serve volumeBindingMode: WaitForFirstConsumer in una StorageClass?",
+  "opzioni": [
+   "A rimandare la cancellazione del PV",
+   "A creare il PV nella zona del nodo dove lo scheduler mette il Pod",
+   "A permettere l'espansione del volume",
+   "A montare il volume da più nodi"
+  ],
+  "corretta": 1,
+  "spiegazione": "Senza, il disco può nascere in zona A e il Pod essere costretto in zona B: Pending per sempre. L'espansione dipende da allowVolumeExpansion.",
+  "fonte": "1. La teoria nell'intestazione — La catena dello storage",
+  "tipo": "didattica"
+ }
+]

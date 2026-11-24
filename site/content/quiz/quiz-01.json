@@ -1,0 +1,114 @@
+[
+ {
+  "id": "01-1",
+  "domanda": "Un cluster etcd ha 4 membri. Quanti guasti tollera?",
+  "opzioni": [
+   "1, come con 3 membri, ma con scritture più lente",
+   "2, perché la metà dei membri può cadere",
+   "0, perché un numero pari non raggiunge mai il quorum",
+   "3, basta un solo membro vivo"
+  ],
+  "corretta": 0,
+  "spiegazione": "Il quorum è floor(N/2)+1 = 3: con 4 membri si tollera 1 solo guasto, come con 3, ma le scritture sono più lente. Per questo si usano 3 o 5 membri, mai un numero pari.",
+  "fonte": "1. La teoria nell'intestazione — Il quorum di etcd",
+  "tipo": "didattica"
+ },
+ {
+  "id": "01-2",
+  "domanda": "Se cade il kube-apiserver, cosa succede ai Pod già in esecuzione?",
+  "opzioni": [
+   "Si fermano tutti, perché il kubelet perde il contatto",
+   "Vengono rischedulati su altri nodi",
+   "Continuano a girare: si congela il control plane (niente nuovi scheduling, auto-riparazione, aggiornamento endpoint)",
+   "Restano attivi solo i Pod del namespace kube-system"
+  ],
+  "corretta": 2,
+  "spiegazione": "I kubelet continuano a far girare ciò che hanno: il data plane va avanti. Si fermano scheduling, auto-riparazione e aggiornamento degli endpoint, cioè il control plane.",
+  "fonte": "7. La coda: kubectl e domande da colloquio",
+  "tipo": "didattica"
+ },
+ {
+  "id": "01-3",
+  "domanda": "Nel flusso di kubectl apply, quale componente assegna un nodo ai Pod appena creati dal ReplicaSet?",
+  "opzioni": [
+   "Il kubelet del nodo",
+   "Il controller-manager",
+   "kube-proxy",
+   "Il kube-scheduler"
+  ],
+  "corretta": 3,
+  "spiegazione": "Lo scheduler scarta i nodi inadatti (risorse, taint, affinity), dà un punteggio agli altri e fa il bind. Il kubelet poi avvia i container del Pod assegnato al suo nodo; kube-proxy traduce i Service in regole di rete.",
+  "fonte": "1. La teoria nell'intestazione — Cosa succede con kubectl apply",
+  "tipo": "didattica"
+ },
+ {
+  "id": "01-4",
+  "domanda": "Chi applica le NetworkPolicy in un cluster con Calico?",
+  "opzioni": [
+   "kube-proxy, con regole iptables",
+   "Il CNI (Calico)",
+   "Il kube-apiserver, in fase di admission",
+   "Il kubelet di ogni nodo"
+  ],
+  "corretta": 1,
+  "spiegazione": "Le NetworkPolicy le applica il CNI (Calico, Cilium), non Kubernetes né kube-proxy, che si occupa solo di tradurre i Service in regole di rete.",
+  "fonte": "1. La teoria nell'intestazione — Nodo",
+  "tipo": "didattica"
+ },
+ {
+  "id": "01-5",
+  "domanda": "Perché un ClusterIP è definito «virtuale»?",
+  "opzioni": [
+   "Perché cambia ogni volta che un Pod viene ricreato",
+   "Perché è assegnato dal CNI ai Pod nella rete 10.244.x",
+   "Perché nessuna scheda di rete lo possiede: lo traducono le regole scritte da kube-proxy",
+   "Perché esiste solo sul control plane"
+  ],
+  "corretta": 2,
+  "spiegazione": "Il ClusterIP (10.96.0.0/12) non appartiene a nessuna interfaccia: è tradotto dalle regole di kube-proxy e resta stabile anche quando i Pod cambiano. È il Pod IP (10.244.x) che cambia alla ricreazione.",
+  "fonte": "4. esplora — I tre tipi di IP",
+  "tipo": "didattica"
+ },
+ {
+  "id": "01-6",
+  "domanda": "Nel lab, eseguendo `ls /etc/kubernetes/manifests` sull'host Ubuntu (passo 10 del guidato), cosa si ottiene?",
+  "opzioni": [
+   "Un errore con uscita 2: sull'host la cartella non c'è, il nodo è un container",
+   "L'elenco dei manifest dei Pod statici",
+   "Una cartella vuota",
+   "Permission denied con uscita 1"
+  ],
+  "corretta": 0,
+  "spiegazione": "Il passo fallisce apposta con uscita 2: i manifest dei Pod statici esistono dentro il container-nodo (si vedono con minikube ssh), non sull'host.",
+  "fonte": "6. Lo script guidato, passo per passo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "01-7",
+  "domanda": "Nel lab, cancellando i Pod del Deployment eco (whoami), in che stato passano i Pod vecchi?",
+  "opzioni": [
+   "Da Terminating a Completed",
+   "Restano Running finché il ReplicaSet non li sostituisce",
+   "Da Terminating a CrashLoopBackOff",
+   "Da Terminating a Error, perché whoami esce con codice 2 al SIGTERM"
+  ],
+  "corretta": 3,
+  "spiegazione": "È misurato nel lab: whoami esce con codice 2 al SIGTERM, quindi i Pod cancellati mostrano Error. Non è un guasto: conta che i due Pod nuovi arrivino a Running.",
+  "fonte": "4. esplora — La riconciliazione dal vivo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "01-8",
+  "domanda": "Qual è il vantaggio del server-side apply rispetto al client-side?",
+  "opzioni": [
+   "È più veloce perché salta l'admission",
+   "Registra in managedFields il proprietario di ogni campo: due strumenti sullo stesso campo danno un conflitto esplicito",
+   "Non richiede autorizzazione RBAC",
+   "Usa l'annotazione last-applied per calcolare il merge"
+  ],
+  "corretta": 1,
+  "spiegazione": "Il client-side calcola il merge con l'annotazione last-applied; il server-side traccia in managedFields chi possiede ogni campo, trasformando le sovrascritture silenziose in conflitti espliciti.",
+  "fonte": "7. La coda: kubectl e domande da colloquio",
+  "tipo": "didattica"
+ }
+]

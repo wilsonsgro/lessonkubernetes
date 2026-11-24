@@ -1,0 +1,114 @@
+[
+ {
+  "id": "21-1",
+  "domanda": "Le NodePort 30080/30443/30024 configurate con controller.service.nodePorts a cosa servono?",
+  "opzioni": [
+   "Sono le porte dei Pod applicativi blu e verde",
+   "Sono le porte del ClusterIP del Service blu",
+   "Sono il punto d'ingresso per raggiungere i Pod HAProxy (http, https, statistiche); quale Service applicativo serve lo decide l'Ingress",
+   "Rendono automaticamente HAProxy accessibile da Internet"
+  ],
+  "corretta": 2,
+  "spiegazione": "NodePort risponde a «come entro fino al proxy?», l'Ingress a «quale Service applicativo è la destinazione?», il backend HAProxy a «quale Pod concreto serve la richiesta?». NodePort non significa accessibile da Internet senza routing, NAT o LB.",
+  "fonte": "Spiegazione e riflessioni ragionate — La riflessione nata dalla domanda sulle NodePort",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21-2",
+  "domanda": "Perché il controller HAProxy ha controller.replicaCount: 2 con podAntiAffinity obbligatoria?",
+  "opzioni": [
+   "Per raddoppiare il rate limit globale",
+   "Perché sono due IngressClass distinte, una pubblica e una interna",
+   "Perché ogni replica serve un'app diversa, blu o verde",
+   "Per ridondanza: il guasto di un Pod o di un intero worker non spegne entrambi; le repliche però non condividono contatori e connessioni"
+  ],
+  "corretta": 3,
+  "spiegazione": "Le due repliche sono la stessa installazione logica su worker distinti. Non condividono stato: le connessioni già attive sulla replica che muore possono interrompersi.",
+  "fonte": "Spiegazione e riflessioni ragionate — La riflessione nata dalla domanda sui due controller",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21-3",
+  "domanda": "Nelle righe server del backend HAProxy che indirizzi compaiono?",
+  "opzioni": [
+   "Il ClusterIP del Service blu",
+   "Gli IP dei Pod blu pronti, gli stessi dell'EndpointSlice",
+   "Gli IP dei nodi con la NodePort",
+   "L'IP del controller-manager"
+  ],
+  "corretta": 1,
+  "spiegazione": "HAProxy non usa il ClusterIP: il Service è un indice e il controller mette ogni IP di Pod pronto dell'EndpointSlice in una riga server. Per questo bilanciamento e health check sono di HAProxy, non il DNAT di kube-proxy.",
+  "fonte": "1. L'architettura — Il percorso di una richiesta",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21-4",
+  "domanda": "Come nasce /etc/haproxy/haproxy.cfg dentro il Pod HAProxy?",
+  "opzioni": [
+   "Lo scrive a mano l'amministratore e lo monta con una ConfigMap",
+   "Lo genera kube-proxy dalle regole iptables",
+   "Il controller Go fa watch sull'apiserver e traduce Ingress, Service ed EndpointSlice nel file, con un backend per porta di Service",
+   "Lo copia Helm a ogni upgrade"
+  ],
+  "corretta": 2,
+  "spiegazione": "Il Pod contiene il controller e HAProxy; il backend si chiama <namespace>_svc_<service>_<porta> e ha una riga per Pod.",
+  "fonte": "1. L'architettura — Configurazione scritta da un controller",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21-5",
+  "domanda": "Nel lab si scala blu da 3 a 5 repliche. Cosa si osserva sul Pod HAProxy?",
+  "opzioni": [
+   "Due add server «New server registered» via Runtime API e contatore reloads invariato",
+   "Un reload completo, con il contatore reloads +1",
+   "Nessuna modifica finché non si riapplica l'Ingress",
+   "Due slot server in maint che vengono accesi"
+  ],
+  "corretta": 0,
+  "spiegazione": "Misurato sul lab: i cambi di membership passano dalla Runtime API sul socket senza reload; un reload lo provoca solo un cambio di struttura (backend o annotazione nuovi). Gli slot in maint erano delle versioni vecchie.",
+  "fonte": "1. L'architettura — Senza reload: la Runtime API",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "21-6",
+  "domanda": "Quando preferire leastconn a roundrobin?",
+  "opzioni": [
+   "Per richieste brevi e simili",
+   "Solo quando c'è un unico Pod",
+   "Mai: roundrobin è sempre migliore",
+   "Per connessioni lunghe o di durata diversa (websocket, upload, query lente)"
+  ],
+  "corretta": 3,
+  "spiegazione": "roundrobin va a turno ed è adatto a richieste brevi e simili; leastconn manda al Pod con meno connessioni aperte. Nel lab blu usa roundrobin, verde leastconn.",
+  "fonte": "5. Domande da colloquio",
+  "tipo": "didattica"
+ },
+ {
+  "id": "21-7",
+  "domanda": "Nel lab, l'Ingress limitato permette 5 richieste ogni 10 s per IP, con due repliche HAProxy. Quante risposte 200 su 12 curl consecutivi sono state misurate?",
+  "opzioni": [
+   "5, il limite è globale",
+   "10 e 9 nelle due corse: ogni replica ha la sua stick-table",
+   "12, il rate limit non funziona con NodePort",
+   "0, tutte 429"
+  ],
+  "corretta": 1,
+  "spiegazione": "Ogni HAProxy tiene la propria stick-table, quindi il limite si moltiplica per le repliche raggiunte (fino a 5 per replica). Per un limite globale servono i peers fra le repliche o un limite a monte.",
+  "fonte": "3. Lo script guidato, passo per passo",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "21-8",
+  "domanda": "Con l'annotazione haproxy.org/path-rewrite: /(blu|verde)/?(.*) /\\2, cosa riceve il Pod blu per `curl -H 'Host: app.lab.local' …/blu/ciao`?",
+  "opzioni": [
+   "GET /ciao: il prefisso viene tolto prima di passare al Pod",
+   "GET /blu/ciao",
+   "GET /",
+   "Un 404 perché il path non esiste"
+  ],
+  "corretta": 0,
+  "spiegazione": "path-rewrite sull'Ingress app elimina il prefisso /blu o /verde: whoami risponde con Hostname del Pod e GET /ciao. Senza Host corrispondente si ottiene 404.",
+  "fonte": "1. L'architettura — Le annotazioni: Service = backend, Ingress = frontend",
+  "tipo": "didattica"
+ }
+]

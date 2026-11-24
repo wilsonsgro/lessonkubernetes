@@ -1,0 +1,1157 @@
+[
+ {
+  "termine": "Pod",
+  "definizione": "L'unità che Kubernetes schedula su un nodo: uno o più container che il kubelet avvia tramite il runtime. È effimero e il suo IP cambia quando viene ricreato.",
+  "lezioni": [
+   "01",
+   "02",
+   "03",
+   "05",
+   "08"
+  ],
+  "alias": [
+   "pod"
+  ]
+ },
+ {
+  "termine": "ReplicaSet",
+  "definizione": "Oggetto creato dal Deployment controller che mantiene N Pod: se ne vede meno di quelli dichiarati li ricrea (auto-riparazione).",
+  "lezioni": [
+   "01",
+   "02",
+   "07"
+  ],
+  "alias": [
+   "rs"
+  ]
+ },
+ {
+  "termine": "etcd",
+  "definizione": "Il database chiave-valore dove vive tutto lo stato del cluster. Usa il consenso Raft e richiede un quorum floor(N/2)+1, per questo si usano 3 o 5 membri.",
+  "lezioni": [
+   "01",
+   "04"
+  ],
+  "alias": [
+   "etcdctl"
+  ]
+ },
+ {
+  "termine": "kube-apiserver",
+  "definizione": "L'unica porta d'ingresso del cluster: ogni richiesta passa da autenticazione, autorizzazione (RBAC), admission e poi scrittura in etcd. Non ha stato, quindi se ne possono mettere più copie.",
+  "lezioni": [
+   "01",
+   "07"
+  ],
+  "alias": [
+   "apiserver",
+   "API server"
+  ]
+ },
+ {
+  "termine": "scheduler",
+  "definizione": "Il kube-scheduler sceglie su quale nodo mettere un Pod: scarta i nodi inadatti (risorse, taint, affinity), dà un punteggio agli altri e fa il bind.",
+  "lezioni": [
+   "01",
+   "06",
+   "08"
+  ],
+  "alias": [
+   "kube-scheduler"
+  ]
+ },
+ {
+  "termine": "kubelet",
+  "definizione": "L'agente su ogni nodo: legge i Pod assegnati al suo nodo, li avvia via CRI, esegue le probe e riporta lo stato. Avvia anche i Pod statici del control plane da /etc/kubernetes/manifests.",
+  "lezioni": [
+   "01",
+   "02",
+   "04",
+   "08"
+  ],
+  "alias": []
+ },
+ {
+  "termine": "kube-proxy",
+  "definizione": "Traduce i Service in regole di rete (iptables, IPVS, nftables) su ogni nodo, facendo DNAT verso un Pod. Con Cilium può mancare.",
+  "lezioni": [
+   "01",
+   "03"
+  ],
+  "alias": []
+ },
+ {
+  "termine": "CNI",
+  "definizione": "Il plugin di rete che dà un IP a ogni Pod in un modello piatto senza NAT; applica anche le NetworkPolicy (Calico, Cilium).",
+  "lezioni": [
+   "01",
+   "03",
+   "08",
+   "24"
+  ],
+  "alias": [
+   "Calico",
+   "Cilium",
+   "kindnet"
+  ]
+ },
+ {
+  "termine": "controller-manager",
+  "definizione": "Contiene i loop di controllo (Deployment, ReplicaSet, Node, Job, EndpointSlice, token dei ServiceAccount) che riconciliano lo stato reale con quello dichiarato.",
+  "lezioni": [
+   "01"
+  ],
+  "alias": [
+   "controller"
+  ]
+ },
+ {
+  "termine": "admission controller",
+  "definizione": "Intercetta la richiesta dopo l'autorizzazione e prima di etcd: i mutating la modificano, i validating la accettano o rifiutano.",
+  "lezioni": [
+   "01",
+   "07"
+  ],
+  "alias": [
+   "admission"
+  ]
+ },
+ {
+  "termine": "Deployment",
+  "definizione": "Gestisce ReplicaSet (uno per versione del pod template) e, attraverso loro, Pod intercambiabili; fa rolling update e rollback con rollout undo.",
+  "lezioni": [
+   "01",
+   "02",
+   "06",
+   "09",
+   "24"
+  ],
+  "alias": [
+   "deploy"
+  ],
+  "tranneLezioni": [
+   "23"
+  ]
+ },
+ {
+  "termine": "readiness",
+  "definizione": "Probe che decide se il Pod riceve traffico: se fallisce il Pod esce dagli EndpointSlice ma non viene riavviato.",
+  "lezioni": [
+   "02",
+   "03",
+   "08"
+  ],
+  "alias": [
+   "readinessProbe"
+  ]
+ },
+ {
+  "termine": "liveness",
+  "definizione": "Probe che, se fallisce, fa riavviare il container dal kubelet; deve controllare solo che il processo sia vivo, non le dipendenze.",
+  "lezioni": [
+   "02"
+  ],
+  "alias": [
+   "livenessProbe"
+  ]
+ },
+ {
+  "termine": "startupProbe",
+  "definizione": "Probe che protegge le applicazioni lente ad avviarsi: finché non passa le altre non partono; se esaurisce il budget il container viene riavviato.",
+  "lezioni": [
+   "02"
+  ],
+  "alias": [
+   "startup"
+  ]
+ },
+ {
+  "termine": "rolling update",
+  "definizione": "Strategia RollingUpdate del Deployment: sostituzione graduale dei Pod regolata da maxSurge (Pod in più) e maxUnavailable (Pod non disponibili ammessi).",
+  "lezioni": [
+   "02",
+   "23"
+  ],
+  "alias": [
+   "RollingUpdate",
+   "maxSurge",
+   "maxUnavailable"
+  ]
+ },
+ {
+  "termine": "preStop",
+  "definizione": "Hook di lifecycle eseguito prima del SIGTERM; nel corso un sleep nativo di 5 s ritarda lo spegnimento perché il Pod esca dagli Endpoint, riducendo i 502.",
+  "lezioni": [
+   "02"
+  ],
+  "alias": [
+   "terminationGracePeriodSeconds"
+  ]
+ },
+ {
+  "termine": "QoS",
+  "definizione": "Classe calcolata dalle risorse: Guaranteed (request = limit), Burstable (almeno una request), BestEffort (nessuna); decide l'ordine degli sfratti sotto pressione di memoria.",
+  "lezioni": [
+   "02"
+  ],
+  "alias": [
+   "Guaranteed",
+   "Burstable",
+   "BestEffort"
+  ]
+ },
+ {
+  "termine": "requests e limits",
+  "definizione": "requests è la riserva che usa lo scheduler per scegliere il nodo; limits è il tetto a runtime: CPU oltre il limite = throttling, memoria oltre = OOMKilled (exit 137).",
+  "lezioni": [
+   "02",
+   "06"
+  ],
+  "alias": [
+   "requests",
+   "limits",
+   "OOMKilled"
+  ]
+ },
+ {
+  "termine": "securityContext",
+  "definizione": "Presidio del container: non root, allowPrivilegeEscalation false, filesystem read-only, capability tolte; sono i campi che chiede il profilo restricted.",
+  "lezioni": [
+   "02",
+   "07"
+  ],
+  "alias": [
+   "runAsNonRoot"
+  ]
+ },
+ {
+  "termine": "Service",
+  "definizione": "Dà un nome DNS e un IP virtuale stabili davanti a un insieme di Pod scelto per label con il selector; il traffico va solo ai Pod pronti.",
+  "lezioni": [
+   "01",
+   "03",
+   "05",
+   "08",
+   "21",
+   "24"
+  ],
+  "alias": [
+   "svc",
+   "ClusterIP"
+  ],
+  "tranneLezioni": [
+   "23"
+  ]
+ },
+ {
+  "termine": "EndpointSlice",
+  "definizione": "Contiene gli IP dei Pod pronti (readiness) dietro un Service; kube-proxy e i controller Ingress lo leggono. Vuoto = selector sbagliato o Pod non ready.",
+  "lezioni": [
+   "01",
+   "03",
+   "08",
+   "21"
+  ],
+  "alias": [
+   "endpoint",
+   "Endpoints"
+  ]
+ },
+ {
+  "termine": "Ingress",
+  "definizione": "Regole L7 (host, path, TLS) che da sole non fanno niente: serve un Ingress Controller scelto con ingressClassName. Il successore è la Gateway API.",
+  "lezioni": [
+   "03",
+   "09",
+   "21"
+  ],
+  "alias": [
+   "Ingress Controller",
+   "ingressClassName"
+  ]
+ },
+ {
+  "termine": "NetworkPolicy",
+  "definizione": "Regole additive (solo allow) applicate dal CNI: appena una policy seleziona un Pod per Ingress, il Pod accetta solo ciò che qualche policy permette. Stesso elemento = AND, due elementi = OR.",
+  "lezioni": [
+   "01",
+   "03",
+   "06"
+  ],
+  "alias": [
+   "default-deny"
+  ]
+ },
+ {
+  "termine": "NodePort",
+  "definizione": "Tipo di Service che aggiunge una porta 30000-32767 su ogni nodo; nella lezione 21 espone il controller HAProxy all'esterno.",
+  "lezioni": [
+   "03",
+   "21",
+   "24"
+  ],
+  "alias": []
+ },
+ {
+  "termine": "Service headless",
+  "definizione": "Service con clusterIP: None: il DNS restituisce gli IP dei Pod invece di un IP virtuale; usato dagli StatefulSet.",
+  "lezioni": [
+   "03",
+   "05"
+  ],
+  "alias": [
+   "headless"
+  ]
+ },
+ {
+  "termine": "ConfigMap",
+  "definizione": "Oggetto per la configurazione non sensibile, fuori dall'immagine; arriva nel Pod come env (letta solo all'avvio) o come volume (aggiornato al sync del kubelet, mai con subPath).",
+  "lezioni": [
+   "04",
+   "09",
+   "24"
+  ],
+  "alias": [
+   "cm"
+  ]
+ },
+ {
+  "termine": "Secret",
+  "definizione": "Oggetto per i dati sensibili, codificati in base64 che non è cifratura; nei volumi sta in tmpfs e l'RBAC si può separare dai ConfigMap. La cifratura at-rest richiede una EncryptionConfiguration.",
+  "lezioni": [
+   "04",
+   "07",
+   "24"
+  ],
+  "alias": [
+   "stringData"
+  ],
+  "tranneLezioni": [
+   "23"
+  ]
+ },
+ {
+  "termine": "subPath",
+  "definizione": "Monta un singolo file di un volume; un file montato così non si aggiorna mai nel Pod esistente.",
+  "lezioni": [
+   "04"
+  ],
+  "alias": []
+ },
+ {
+  "termine": "checksum/config",
+  "definizione": "Annotazione nel pod template con l'hash della ConfigMap: quando i dati cambiano cambia il template e il Deployment fa il rollout. Helm la calcola con sha256sum.",
+  "lezioni": [
+   "04",
+   "09",
+   "24"
+  ],
+  "alias": [
+   "checksum"
+  ]
+ },
+ {
+  "termine": "StatefulSet",
+  "definizione": "Dà a ogni replica nome, DNS e disco stabili (db-0, db-1…), crea in ordine e con volumeClaimTemplates un PVC per Pod. Non dà replica né failover del database.",
+  "lezioni": [
+   "05",
+   "24"
+  ],
+  "alias": [
+   "sts"
+  ]
+ },
+ {
+  "termine": "PVC",
+  "definizione": "PersistentVolumeClaim: la richiesta di storage (es. 1Gi RWO). Negli StatefulSet ne nasce uno per Pod, con nome <template>-<pod>.",
+  "lezioni": [
+   "05",
+   "24"
+  ],
+  "alias": [
+   "PersistentVolumeClaim",
+   "volumeClaimTemplates"
+  ]
+ },
+ {
+  "termine": "PV",
+  "definizione": "PersistentVolume: il disco vero, creato dal provisioner e legato al PVC; la reclaimPolicy (Delete o Retain) decide cosa succede quando il PVC viene cancellato.",
+  "lezioni": [
+   "05"
+  ],
+  "alias": [
+   "PersistentVolume",
+   "reclaimPolicy"
+  ]
+ },
+ {
+  "termine": "StorageClass",
+  "definizione": "Dice come procurare lo storage (provisioner CSI, parametri, reclaimPolicy, volumeBindingMode). WaitForFirstConsumer crea il PV nella zona del nodo del Pod.",
+  "lezioni": [
+   "05"
+  ],
+  "alias": [
+   "storageClassName",
+   "WaitForFirstConsumer"
+  ]
+ },
+ {
+  "termine": "PodDisruptionBudget",
+  "definizione": "Limita le interruzioni volontarie (drain, eviction API) di un gruppo di Pod; non protegge da un nodo che muore né da un delete pod. Mai minAvailable uguale alle repliche.",
+  "lezioni": [
+   "05"
+  ],
+  "alias": [
+   "PDB"
+  ]
+ },
+ {
+  "termine": "drain",
+  "definizione": "Cordona il nodo e sfratta i suoi Pod via eviction rispettando i PDB; uncordon lo riapre allo scheduling ma non riporta indietro i Pod.",
+  "lezioni": [
+   "05"
+  ],
+  "alias": [
+   "cordon",
+   "uncordon"
+  ],
+  "tranneLezioni": [
+   "23"
+  ]
+ },
+ {
+  "termine": "taint",
+  "definizione": "Marcatura del nodo che respinge i Pod che non la tollerano (nodi GPU, dedicati, control plane). NoSchedule blocca le nuove assegnazioni, NoExecute espelle anche i Pod presenti.",
+  "lezioni": [
+   "05",
+   "06"
+  ],
+  "alias": [
+   "NoSchedule",
+   "NoExecute"
+  ]
+ },
+ {
+  "termine": "toleration",
+  "definizione": "Sul Pod, permette di andare su un nodo con un taint corrispondente ma non lo obbliga: per forzarlo serve anche nodeAffinity.",
+  "lezioni": [
+   "05",
+   "06"
+  ],
+  "alias": [
+   "tolerations"
+  ]
+ },
+ {
+  "termine": "affinity",
+  "definizione": "Regole che attraggono il Pod verso nodi (nodeAffinity) o lo tengono vicino o lontano da altri Pod (podAffinity/podAntiAffinity), required o preferred; IgnoredDuringExecution non sposta i Pod già in esecuzione.",
+  "lezioni": [
+   "05",
+   "06"
+  ],
+  "alias": [
+   "nodeAffinity",
+   "podAntiAffinity",
+   "nodeSelector"
+  ]
+ },
+ {
+  "termine": "topologySpreadConstraints",
+  "definizione": "Distribuzione uniforme dei Pod su nodi o zone con maxSkew; ScheduleAnyway la rende un punteggio, DoNotSchedule un vincolo che può lasciare Pod Pending.",
+  "lezioni": [
+   "06"
+  ],
+  "alias": [
+   "maxSkew"
+  ]
+ },
+ {
+  "termine": "PriorityClass",
+  "definizione": "Oggetto di cluster che dà priorità ai Pod; con PreemptLowerPriority lo scheduler può espellere Pod meno prioritari quando manca spazio.",
+  "lezioni": [
+   "06"
+  ],
+  "alias": [
+   "priorityClassName",
+   "preemption"
+  ]
+ },
+ {
+  "termine": "HPA",
+  "definizione": "HorizontalPodAutoscaler: decide quante repliche, con desiderate = ceil(attuali × valore / target), dove la CPU è in percentuale delle requests; behavior regola velocità di salita e discesa.",
+  "lezioni": [
+   "06"
+  ],
+  "alias": [
+   "HorizontalPodAutoscaler"
+  ]
+ },
+ {
+  "termine": "metrics-server",
+  "definizione": "Addon che fornisce kubectl top e le metriche all'HPA; se assente o appena partito l'HPA mostra <unknown>.",
+  "lezioni": [
+   "01",
+   "06"
+  ],
+  "alias": [
+   "kubectl top"
+  ]
+ },
+ {
+  "termine": "ServiceAccount",
+  "definizione": "Identità dei Pod, oggetto vero in un namespace; per RBAC si chiama system:serviceaccount:<ns>:<nome>. Con automountServiceAccountToken: false il token si monta solo dove serve.",
+  "lezioni": [
+   "04",
+   "07"
+  ],
+  "alias": [
+   "SA",
+   "automountServiceAccountToken"
+  ]
+ },
+ {
+  "termine": "Role",
+  "definizione": "Definisce cosa si può fare (verbi su risorse) in un namespace; solo allow, additivo. ClusterRole è la versione riusabile e cluster-scoped.",
+  "lezioni": [
+   "07"
+  ],
+  "alias": [
+   "ClusterRole",
+   "RBAC"
+  ],
+  "tranneLezioni": [
+   "23"
+  ]
+ },
+ {
+  "termine": "RoleBinding",
+  "definizione": "Lega un Role o un ClusterRole a dei subjects (a chi) in un namespace (dove); roleRef è immutabile. ClusterRoleBinding vale per tutto il cluster.",
+  "lezioni": [
+   "07"
+  ],
+  "alias": [
+   "ClusterRoleBinding"
+  ]
+ },
+ {
+  "termine": "Pod Security Admission",
+  "definizione": "Admission nativa che applica i profili privileged, baseline, restricted ai Pod tramite label sul namespace, nei modi enforce, audit e warn. Controlla i Pod, non i Deployment.",
+  "lezioni": [
+   "07"
+  ],
+  "alias": [
+   "PSA",
+   "restricted"
+  ]
+ },
+ {
+  "termine": "kubectl auth can-i",
+  "definizione": "Chiede all'apiserver se un'identità può fare un'azione, anche impersonandola con --as; esce 1 quando la risposta è no.",
+  "lezioni": [
+   "01",
+   "07"
+  ],
+  "alias": [
+   "can-i",
+   "impersonation"
+  ]
+ },
+ {
+  "termine": "CrashLoopBackOff",
+  "definizione": "Stato di un container il cui processo esce di continuo (config, permessi, comando): si guarda logs, che in back-off mostra già l'istanza morta.",
+  "lezioni": [
+   "08"
+  ],
+  "alias": [
+   "back-off"
+  ]
+ },
+ {
+  "termine": "ImagePullBackOff",
+  "definizione": "Il kubelet non riesce a scaricare l'immagine: nome o tag sbagliato, registry privato senza imagePullSecrets, rate limit. Si diagnostica con describe ed eventi.",
+  "lezioni": [
+   "02",
+   "08"
+  ],
+  "alias": [
+   "ErrImagePull"
+  ]
+ },
+ {
+  "termine": "kubectl debug",
+  "definizione": "Aggiunge al Pod un container effimero con gli attrezzi che l'immagine non ha; con --target condivide i processi del container, e debug node/ apre una shell sul nodo con il filesystem in /host.",
+  "lezioni": [
+   "08"
+  ],
+  "alias": [
+   "container effimero",
+   "ephemeral container"
+  ]
+ },
+ {
+  "termine": "Chart",
+  "definizione": "Pacchetto Helm di template, valori (values.yaml, values.schema.json) e metadati (Chart.yaml con version e appVersion).",
+  "lezioni": [
+   "09",
+   "21"
+  ],
+  "alias": [
+   "Helm",
+   "chart"
+  ]
+ },
+ {
+  "termine": "release",
+  "definizione": "Installazione di un Chart con un nome e una storia numerata di revision, salvata nel cluster come Secret helm.sh/release.v1; rollback aggiunge una revision.",
+  "lezioni": [
+   "09"
+  ],
+  "alias": [
+   "revision"
+  ]
+ },
+ {
+  "termine": "values.yaml",
+  "definizione": "L'interfaccia pubblica del chart: i parametri di default, sovrascritti da -f e --set (l'ultimo vince); values.schema.json li valida prima del rendering.",
+  "lezioni": [
+   "09"
+  ],
+  "alias": [
+   "values.schema.json",
+   ".Values"
+  ]
+ },
+ {
+  "termine": "HAProxy",
+  "definizione": "Reverse proxy e load balancer TCP/HTTP; nella lezione 21 gira come Ingress Controller dentro il cluster e bilancia direttamente sugli IP dei Pod.",
+  "lezioni": [
+   "07",
+   "21",
+   "24"
+  ],
+  "alias": [
+   "haproxy-kubernetes-ingress"
+  ]
+ },
+ {
+  "termine": "frontend",
+  "definizione": "In HAProxy, la parte che riceve le connessioni e applica le regole (Host, path); le annotazioni dell'Ingress configurano il frontend.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [],
+  "soloLezioni": true
+ },
+ {
+  "termine": "backend",
+  "definizione": "In HAProxy, un gruppo di destinazioni (righe server) con un algoritmo di bilanciamento; il controller ne crea uno per porta di Service e le annotazioni del Service lo configurano.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "server"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "Runtime API",
+  "definizione": "Socket di HAProxy (/run/haproxy-runtime-api.sock) con cui il controller aggiunge e toglie server a caldo (add server / del server) senza reload.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "add server",
+   "show proc"
+  ]
+ },
+ {
+  "termine": "stick-table",
+  "definizione": "Tabella di stato locale di ogni processo HAProxy, usata per esempio dal rate limit: con più repliche ognuna ha la sua, quindi il limite non è globale senza peers.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "peers",
+   "rate limit"
+  ]
+ },
+ {
+  "termine": "roundrobin",
+  "definizione": "Algoritmo di bilanciamento a turno, adatto a richieste brevi e simili; leastconn manda al server con meno connessioni aperte, per connessioni lunghe.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "leastconn",
+   "load-balance"
+  ]
+ },
+ {
+  "termine": "path-rewrite",
+  "definizione": "Annotazione haproxy.org/path-rewrite che riscrive il path prima di passarlo al Pod, ad esempio togliendo il prefisso /blu.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": []
+ },
+ {
+  "termine": "SNI",
+  "definizione": "Server Name Indication: il nome del sito che il client invia in chiaro nel primo messaggio dell'handshake TLS (ClientHello). Con crt su una directory HAProxy sceglie il certificato giusto; in passthrough è l'unica cosa su cui può instradare.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "Server Name Indication",
+   "req_ssl_sni"
+  ]
+ },
+ {
+  "termine": "terminazione TLS",
+  "definizione": "HAProxy decifra con certificato e chiave e inoltra ai server in HTTP in chiaro (TLS offloading): certificati in un solo posto e routing per host e path. Nel file del negozio: fe_https verso be_web.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "TLS offloading",
+   "terminazione"
+  ]
+ },
+ {
+  "termine": "ri-cifratura TLS",
+  "definizione": "HAProxy decifra, ispeziona e ri-cifra verso i server con ssl sulla riga server; va con verify required e ca-file, altrimenti cifra senza autenticare. Nel file del negozio: be_api.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "re-encryption",
+   "TLS bridging",
+   "ri-cifratura",
+   "verify required"
+  ]
+ },
+ {
+  "termine": "TLS passthrough",
+  "definizione": "HAProxy in mode tcp inoltra i byte cifrati senza decifrarli; il TLS lo termina il server, la chiave privata non lascia il server e si instrada solo per SNI.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "passthrough",
+   "mode tcp"
+  ]
+ },
+ {
+  "termine": "ACL",
+  "definizione": "In haproxy.cfg, condizione con un nome (acl host_negozio hdr(host) -i www.negozio.it); use_backend ... if acl1 acl2 è un AND, valutato in ordine, default_backend se nessuna regola scatta.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "acl",
+   "use_backend",
+   "default_backend",
+   "path_beg"
+  ]
+ },
+ {
+  "termine": "health check",
+  "definizione": "Controllo periodico che HAProxy fa su ogni server con check (inter, fall, rise); con option httpchk è una vera richiesta HTTP. Stesso concetto della readinessProbe.",
+  "lezioni": [
+   "21",
+   "24"
+  ],
+  "alias": [
+   "httpchk",
+   "check inter",
+   "fall",
+   "rise"
+  ]
+ },
+ {
+  "termine": "PEM",
+  "definizione": "Il file unico che HAProxy vuole con crt: certificato, catena intermedia e chiave privata uno dopo l'altro, con permessi 600.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "file PEM",
+   "crt"
+  ]
+ },
+ {
+  "termine": "HSTS",
+  "definizione": "Strict-Transport-Security: header che dice al browser di usare solo HTTPS per max-age secondi; HAProxy può aggiungerlo solo se decifra.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "Strict-Transport-Security"
+  ]
+ },
+ {
+  "termine": "X-Forwarded-For",
+  "definizione": "Header aggiunto da option forwardfor con l'IP reale del client, che i server altrimenti vedrebbero come l'IP di HAProxy; impossibile in passthrough.",
+  "lezioni": [
+   "21"
+  ],
+  "alias": [
+   "forwardfor",
+   "option forwardfor"
+  ]
+ },
+ {
+  "termine": "state",
+  "definizione": "Il file terraform.tfstate: la mappa fra gli indirizzi del codice (docker_container.web) e gli ID reali. Contiene segreti in chiaro: mai in git; in squadra sta su un backend remoto con lock.",
+  "lezioni": [
+   "22",
+   "24"
+  ],
+  "alias": [
+   "terraform.tfstate",
+   "stato di Terraform"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "provider",
+  "definizione": "Plugin che traduce le risorse Terraform in chiamate API; nel laboratorio kreuzwerker/docker parla con /var/run/docker.sock. Versioni scelte da init e bloccate nel lock file.",
+  "lezioni": [
+   "22",
+   "24"
+  ],
+  "alias": [
+   "kreuzwerker/docker",
+   "required_providers"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "plan",
+  "definizione": "terraform plan: legge lo state, interroga le API (refresh) e calcola il diff fra codice e realtà; con -out il piano si salva e l'apply esegue esattamente quello.",
+  "lezioni": [
+   "22"
+  ],
+  "alias": [
+   "terraform plan",
+   "piano salvato",
+   "plan -out"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "drift",
+  "definizione": "Differenza fra la realtà e il codice causata da modifiche fatte fuori da Terraform. plan la mostra, -refresh-only la accetta nello state, -replace ricrea la risorsa.",
+  "lezioni": [
+   "22",
+   "23"
+  ],
+  "alias": [
+   "refresh-only"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "lock file",
+  "definizione": "Il file .terraform.lock.hcl scritto da init con le versioni esatte dei provider: va in git, così tu, i colleghi e la CI usate le stesse.",
+  "lezioni": [
+   "22"
+  ],
+  "alias": [
+   ".terraform.lock.hcl"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "backend remoto",
+  "definizione": "Dove sta lo state condiviso: con lock, cifrato e versionato. Nel laboratorio pg su un Postgres locale (PG_CONN_STR); in produzione per esempio s3 con use_lockfile.",
+  "lezioni": [
+   "22"
+  ],
+  "alias": [
+   "backend pg",
+   "backend s3",
+   "use_lockfile",
+   "backend"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "for_each",
+  "definizione": "Meta-argomento che crea un'istanza per chiave di una mappa o di un set: web[\"a\"]. Togliere un elemento tocca solo quello; le chiavi devono essere note al plan.",
+  "lezioni": [
+   "22",
+   "23",
+   "24"
+  ],
+  "alias": [
+   "count"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "modulo",
+  "definizione": "Cartella con variables, main, outputs, versions riusata da più configurazioni; il root configura provider e backend, i moduli no. Sorgente versionata, mai un branch.",
+  "lezioni": [
+   "22"
+  ],
+  "alias": [
+   "moduli",
+   "modulo root"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "moved",
+  "definizione": "Blocco moved { from, to }: rinomina o sposta una risorsa nello state senza distruggerla (il plan dice «has moved to»).",
+  "lezioni": [
+   "22"
+  ],
+  "alias": [
+   "blocco moved"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "import",
+  "definizione": "Blocco import { to, id }: adotta in Terraform una risorsa creata fuori; -generate-config-out scrive anche il codice. Con il provider docker serve l'ID completo.",
+  "lezioni": [
+   "22"
+  ],
+  "alias": [
+   "blocco import",
+   "generate-config-out"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "sensitive",
+  "definizione": "Marca una variabile o un output come sensibile: nascosto in plan, output e log, ma in chiaro nello state.",
+  "lezioni": [
+   "22",
+   "24"
+  ],
+  "alias": [
+   "nonsensitive"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "check",
+  "definizione": "Blocco check { assert { … } }: asserzione valutata alla fine dell'apply sull'insieme; avvisa senza bloccare, a differenza di precondition e postcondition.",
+  "lezioni": [
+   "22"
+  ],
+  "alias": [
+   "precondition",
+   "postcondition",
+   "blocco check"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "idempotenza",
+  "definizione": "Un modulo descrive uno stato e cambia qualcosa solo se serve: la seconda esecuzione dà changed=0. command e shell non lo sono da soli: servono creates, removes o changed_when.",
+  "lezioni": [
+   "23",
+   "24"
+  ],
+  "alias": [
+   "idempotente",
+   "changed=0"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "inventario",
+  "definizione": "L'elenco degli host di Ansible, divisi in gruppi (anche gruppi di gruppi) con variabili per gruppo e per host. Su un cloud è dinamico: un plugin lo legge dall'API e crea i gruppi dai tag.",
+  "lezioni": [
+   "23",
+   "24"
+  ],
+  "alias": [
+   "inventory.yml",
+   "inventario dinamico"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "modulo Ansible",
+  "definizione": "Il piccolo programma Python che Ansible copia sul nodo, esegue e di cui legge la risposta JSON: apt, copy, template, service, user… Si scrive con il nome completo (FQCN), come ansible.builtin.apt.",
+  "lezioni": [
+   "23"
+  ],
+  "alias": [
+   "modulo",
+   "moduli"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "control node",
+  "definizione": "La macchina da cui gira Ansible. Sui nodi servono solo Python e un utente con sudo (agentless); la connessione è SSH, nel laboratorio il plugin community.docker.docker.",
+  "lezioni": [
+   "23"
+  ],
+  "alias": [
+   "agentless"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "playbook",
+  "definizione": "Una lista di play: ogni play applica dei task, in ordine, a un gruppo di host in parallelo.",
+  "lezioni": [
+   "23",
+   "24"
+  ],
+  "alias": [
+   "play",
+   "ansible-playbook"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "handler",
+  "definizione": "Un task che gira una volta a fine play, solo se un task changed lo ha notificato con notify: per esempio il reload di nginx dopo la config.",
+  "lezioni": [
+   "23",
+   "24"
+  ],
+  "alias": [
+   "handlers",
+   "notify"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "ruolo",
+  "definizione": "Una cartella dalla struttura fissa (defaults, vars, tasks, handlers, templates, meta) che Ansible carica da sé. defaults è l'interfaccia, con priorità minima; vars sono gli interni, con priorità alta.",
+  "lezioni": [
+   "23",
+   "24"
+  ],
+  "alias": [
+   "ruoli",
+   "roles"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "argument_specs",
+  "definizione": "Il contratto di un ruolo in meta/argument_specs.yml: tipi e parametri obbligatori, controllati prima di qualsiasi task del ruolo.",
+  "lezioni": [
+   "23"
+  ],
+  "alias": [
+   "argument_specs.yml"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "collection",
+  "definizione": "Il formato di distribuzione di moduli, plugin e ruoli, con nome namespace.nome (community.docker). Si installa a versioni fisse da requirements.yml.",
+  "lezioni": [
+   "23",
+   "24"
+  ],
+  "alias": [
+   "collections",
+   "requirements.yml",
+   "ansible-galaxy"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "facts",
+  "definizione": "Le informazioni sul nodo raccolte dal modulo setup all'inizio del play (OS, IP, CPU, dischi), in ansible_facts. gather_facts: false se non servono.",
+  "lezioni": [
+   "23"
+  ],
+  "alias": [
+   "ansible_facts",
+   "gather_facts"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "Ansible Vault",
+  "definizione": "Cifra file interi o singoli valori (encrypt_string, AES256): in git va solo il cifrato. La password arriva da --vault-password-file (file 0600) o dalla CI.",
+  "lezioni": [
+   "23"
+  ],
+  "alias": [
+   "ansible-vault",
+   "encrypt_string",
+   "!vault"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "no_log",
+  "definizione": "Sul task che tocca un segreto impedisce che il valore finisca nell'output e nei log (anche -v, anche gli item di un loop).",
+  "lezioni": [
+   "23",
+   "24"
+  ],
+  "alias": [
+   "no_log: true"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "serial",
+  "definizione": "Divide gli host di un play in lotti (1, \"30%\", [1, \"25%\"]) per un rolling update. max_fail_percentage vale per lotto e va superato, non eguagliato.",
+  "lezioni": [
+   "23"
+  ],
+  "alias": [
+   "max_fail_percentage"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "delegate_to",
+  "definizione": "Esegue il task su un altro host (il bilanciatore, il DNS) con le variabili dell'host corrente. run_once lo esegue una volta per lotto.",
+  "lezioni": [
+   "23"
+  ],
+  "alias": [
+   "run_once"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "drain dal bilanciatore",
+  "definizione": "Togliere un host dal load balancer prima di aggiornarlo, e rimetterlo solo dopo la verifica. Nella parte 09 è una riga in /etc/lb/backends su db1; con HAProxy community.general.haproxy state=drained.",
+  "lezioni": [
+   "23"
+  ],
+  "alias": [
+   "drain"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "PROXY protocol",
+  "definizione": "Intestazione che un bilanciatore TCP (send-proxy-v2 in HAProxy) mette all'inizio della connessione per passare l'IP vero del client; nginx la legge con listen … proxy_protocol.",
+  "lezioni": [
+   "24"
+  ],
+  "alias": [
+   "send-proxy-v2",
+   "proxy_protocol"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "externalTrafficPolicy",
+  "definizione": "Con Local un NodePort risponde solo sui nodi dove gira un Pod del Service e conserva l'IP del client; un controllo di salute toglie gli altri nodi dal bilanciatore.",
+  "lezioni": [
+   "24"
+  ],
+  "alias": [
+   "externalTrafficPolicy: Local"
+  ],
+  "soloLezioni": true
+ }
+]

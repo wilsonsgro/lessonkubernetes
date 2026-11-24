@@ -1,0 +1,104 @@
+- name: Cartella privata per i piani Terraform
+  ansible.builtin.file:
+    path: "{{ tf_tmp_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Cluster minikube con Terraform
+  block:
+    - name: Applica lo stack del cluster
+      community.general.terraform:
+        project_path: "{{ tf_cluster_dir }}"
+        state: present
+        force_init: true
+        variables:
+          nome_cluster: "{{ nome_cluster }}"
+      environment:
+        TMPDIR: "{{ tf_tmp_dir }}"
+      register: tf_cluster
+  always:
+    - name: Toglie i piani, che contengono lo stato con i segreti
+      ansible.builtin.shell: "find {{ tf_tmp_dir | quote }} -mindepth 1 -delete"
+      changed_when: false
+
+- name: Percorso di minikube
+  ansible.builtin.command: bash -c 'command -v minikube'
+  register: minikube_bin
+  changed_when: false
+
+- name: Cluster acceso
+  ansible.builtin.command: "minikube -p {{ nome_cluster }} status --format {{ '{{.Host}}' }}"
+  register: stato_cluster
+  changed_when: false
+  failed_when: false
+
+- name: Riaccende il cluster spento
+  ansible.builtin.command: "minikube -p {{ nome_cluster }} start"
+  when: "'Running' not in stato_cluster.stdout"
+
+- name: Contesto kubectl aggiornato
+  ansible.builtin.command: "minikube -p {{ nome_cluster }} update-context"
+  register: contesto
+  changed_when: "'was changed' in contesto.stdout"
+
+- name: Nomi dei nodi
+  ansible.builtin.command: "kubectl --context {{ nome_cluster }} get nodes -o name"
+  register: nodi_nomi_raw
+  changed_when: false
+
+- name: Nomi dei nodi senza prefisso
+  ansible.builtin.set_fact:
+    nodi_nomi:
+      stdout_lines: "{{ nodi_nomi_raw.stdout_lines | map('regex_replace', '^node/', '') | list }}"
+
+- name: Spegne il bridge podman lasciato attivo accanto a kindnet
+  ansible.builtin.command: >-
+    minikube -p {{ nome_cluster }} ssh -n {{ item }} --
+    "if [ -f /etc/cni/net.d/87-podman-bridge.conflist ]; then sudo mv /etc/cni/net.d/87-podman-bridge.conflist /etc/cni/net.d/87-podman-bridge.conflist.mk_disabled; echo spento; fi"
+  loop: "{{ nodi_nomi.stdout_lines }}"
+  register: bridge
+  changed_when: "'spento' in bridge.stdout"
+
+- name: Ricrea i pod di sistema nati sul bridge, solo sui nodi dove era acceso
+  ansible.builtin.shell: >-
+    kubectl --context {{ nome_cluster }} -n kube-system get pods
+    --field-selector spec.nodeName={{ item.item }}
+    -o jsonpath='{range .items[*]}{.metadata.name} {.spec.hostNetwork}{"\n"}{end}'
+    | awk '$2 != "true" {print $1}'
+    | xargs -r kubectl --context {{ nome_cluster }} -n kube-system delete pod --grace-period=0 --force
+  loop: "{{ bridge.results | selectattr('changed') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Toglie l'interfaccia del bridge podman
+  ansible.builtin.command: >-
+    minikube -p {{ nome_cluster }} ssh -n {{ item }} --
+    "if ip link show cni-podman0 >/dev/null 2>&1; then sudo ip link delete cni-podman0; echo tolta; fi"
+  loop: "{{ nodi_nomi.stdout_lines }}"
+  register: interfaccia
+  changed_when: "'tolta' in interfaccia.stdout"
+
+- name: I nodi ripartono da soli col PC
+  ansible.builtin.shell: >-
+    p=$(docker inspect -f '{% raw %}{{.HostConfig.RestartPolicy.Name}}{% endraw %}' {{ item | quote }});
+    if [ "$p" != unless-stopped ]; then docker update --restart unless-stopped {{ item | quote }} >/dev/null; echo aggiornato; fi
+  loop: "{{ nodi_nomi.stdout_lines }}"
+  register: riavvio
+  changed_when: "'aggiornato' in riavvio.stdout"
+
+- name: Il cluster si riaccende all'avvio del PC
+  ansible.builtin.cron:
+    name: "minikube {{ nome_cluster }} all'avvio"
+    special_time: reboot
+    job: "sleep 30 && {{ minikube_bin.stdout }} -p {{ nome_cluster }} start > {{ cache_dir }}/minikube-avvio.log 2>&1"
+
+- name: IP interni dei nodi
+  ansible.builtin.command: >-
+    kubectl --context {{ nome_cluster }} get nodes
+    -o jsonpath='{range .items[*]}{.metadata.name}={.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}'
+  register: nodi_raw
+  changed_when: false
+
+- name: Elenco nodi
+  ansible.builtin.set_fact:
+    nodi: "{{ nodi_raw.stdout_lines | map('split', '=') | map('list') | list }}"

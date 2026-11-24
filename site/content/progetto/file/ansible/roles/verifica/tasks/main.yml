@@ -1,0 +1,73 @@
+- name: Attende che HAProxy veda nginx su tutti i nodi
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ haproxy_porta_stats }}/;csv"
+    url_username: admin
+    url_password: "{{ haproxy_password_stats }}"
+    force_basic_auth: true
+    return_content: true
+  register: stats
+  until: >-
+    stats.content.splitlines() | select('match', '^nodi_https,biodistretto') | select('search', ',UP,') | list | length == nodi | length
+  retries: 20
+  delay: 3
+
+- name: Controlli attraverso HAProxy
+  ansible.builtin.command:
+    argv:
+      - curl
+      - -s
+      - -o
+      - /dev/null
+      - -w
+      - "%{http_code}"
+      - --cacert
+      - "{{ k8s_dir }}/ca-biodistretto.crt"
+      - --resolve
+      - "{{ item.host }}:{{ item.porta | default(443) }}:127.0.0.1"
+      - "{{ item.url }}"
+  loop:
+    - { nome: "http rimanda a https", host: "www.{{ dominio }}", porta: 80, url: "http://www.{{ dominio }}/", atteso: "301" }
+    - { nome: "sito protetto da password", host: "www.{{ dominio }}", url: "https://www.{{ dominio }}/", atteso: "401" }
+    - { nome: "API pubblica", host: "www.{{ dominio }}", url: "https://www.{{ dominio }}/api/aziende", atteso: "200" }
+    - { nome: "Laravel sotto /backend", host: "www.{{ dominio }}", url: "https://www.{{ dominio }}/backend/up", atteso: "200" }
+    - { nome: "vhost backend", host: "backend.{{ dominio }}", url: "https://backend.{{ dominio }}/up", atteso: "200" }
+  loop_control:
+    label: "{{ item.nome }}"
+  register: controlli
+  changed_when: false
+  failed_when: controlli.stdout != item.atteso
+
+- name: Aziende restituite dall'API
+  ansible.builtin.command:
+    argv:
+      - curl
+      - -sf
+      - --cacert
+      - "{{ k8s_dir }}/ca-biodistretto.crt"
+      - --resolve
+      - "www.{{ dominio }}:443:127.0.0.1"
+      - "https://www.{{ dominio }}/api/aziende"
+  register: aziende
+  changed_when: false
+  failed_when: (aziende.stdout | from_json).meta.total | int == 0
+
+- name: Sito con la password
+  ansible.builtin.command:
+    argv:
+      - curl
+      - -s
+      - -o
+      - /dev/null
+      - -w
+      - "%{http_code}"
+      - --cacert
+      - "{{ k8s_dir }}/ca-biodistretto.crt"
+      - --resolve
+      - "www.{{ dominio }}:443:127.0.0.1"
+      - -u
+      - "{{ tf_app.outputs.utente_accesso.value }}:{{ tf_app.outputs.password_accesso.value }}"
+      - "https://www.{{ dominio }}/"
+  register: con_password
+  changed_when: false
+  failed_when: con_password.stdout != "200"
+  no_log: true

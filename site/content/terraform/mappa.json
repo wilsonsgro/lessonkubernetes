@@ -1,0 +1,66 @@
+[
+ {
+  "concetto": "Riconciliazione",
+  "da": "01",
+  "verso": [
+   "22"
+  ],
+  "perche": "Terraform è dichiarativo come Kubernetes, ma riconcilia solo quando lanci plan/apply: il drift resta finché qualcuno non guarda"
+ },
+ {
+  "concetto": "Helm",
+  "da": "09",
+  "verso": [
+   "22"
+  ],
+  "perche": "Helm tiene le revisioni di una release, Terraform lo state: entrambi ricordano che cosa hanno installato e da lì calcolano il cambiamento"
+ },
+ {
+  "concetto": "RBAC e PSA",
+  "da": "07",
+  "verso": [
+   "22"
+  ],
+  "perche": "Chi legge lo state legge anche i segreti: l'accesso al backend è una decisione di sicurezza"
+ },
+ {
+  "concetto": "Rolling update",
+  "da": "02",
+  "verso": [
+   "23"
+  ],
+  "perche": "Il Deployment sostituisce i Pod con maxSurge e maxUnavailable; Ansible fa lo stesso sui server con serial, drain dal bilanciatore e max_fail_percentage"
+ },
+ {
+  "concetto": "Secret",
+  "da": "04",
+  "verso": [
+   "23"
+  ],
+  "perche": "Un Secret di Kubernetes è solo base64; Ansible Vault cifra davvero (AES256) e no_log tiene il valore fuori dai log"
+ },
+ {
+  "concetto": "Helm",
+  "da": "09",
+  "verso": [
+   "23"
+  ],
+  "perche": "Chart e ruolo sono pacchetti riusabili con parametri di default: values.yaml da una parte, defaults/ e argument_specs dall'altra"
+ },
+ {
+  "concetto": "Drain da HAProxy",
+  "da": "21",
+  "verso": [
+   "23"
+  ],
+  "perche": "Il rolling update della parte 09 toglie un host dal bilanciatore prima di aggiornarlo: con un HAProxy vero è community.general.haproxy state=drained"
+ },
+ {
+  "concetto": "Terraform crea, Ansible configura",
+  "da": "22",
+  "verso": [
+   "23"
+  ],
+  "perche": "Terraform crea i nodi con for_each e scrive l'inventario con local_file; Ansible lo legge e configura i servizi"
+ }
+]
