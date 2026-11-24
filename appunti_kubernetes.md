@@ -578,6 +578,14 @@ kubectl -n lab get pvc
 kubectl get pv
 kubectl top nodes
 kubectl top pods -A
+
+k9s --context lab -A
+k9s --context lab-haproxy -A
+
+kubectl -n lab get svc web
+kubectl -n lab get ingress web
+helm uninstall demo -n lab-piattaforma && kubectl delete ns lab-piattaforma
+
 ```
 
 ### Diagnosticare un problema
@@ -612,3 +620,23 @@ kubectl -n lab get pdb db
 ---
 
 **Sintesi del percorso:** hai visto come creare due Node su un solo PC, come il Control Plane registra e gestisce lo stato, come Calico connette e filtra i Pod, come Deployment/ReplicaSet mantengono le repliche, come Service e Ingress espongono l'applicazione, come ConfigMap e Secret separano configurazione e codice, come StatefulSet/PVC conservano identità e dati, e come HPA adatta il numero di repliche ai consumi.
+
+
+### Portainer
+
+
+>[portainer](http://192.168.99.101:9001)
+
+>[portainer](https://127.0.0.1:9443)
+
+>[portainer](https://192.168.1.58:9443)
+
+>[portainer](https://192.168.1.79:9443)
+
+>[portainer](https://192.168.1.35:9443)
+
+```bash
+admin
+pippobaudo1234
+Pippobaudo1234!9129313
+```
