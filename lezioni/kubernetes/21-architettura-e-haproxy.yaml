@@ -1,0 +1,233 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 21. ARCHITETTURA CON HAPROXY COME INGRESS CONTROLLER
+# Versione: Kubernetes 1.34 · minikube 1.37 · chart haproxytech/kubernetes-ingress 1.57.1 (HAProxy 3.4) · Calico
+# Livello: 1 — Workload
+# ═══════════════════════════════════════════════════════════════════════════
+# Un Ingress è solo una REGOLA (host, path → Service). La esegue un
+# controller: nella 03 era ingress-nginx (addon di minikube), qui è HAProxy.
+# minikube non ha un addon HAProxy: lo installa Helm (lo script guidato).
+#
+#   client ──▶ NodePort 30080 su UN nodo qualunque
+#                 │ kube-proxy (DNAT)
+#                 ▼
+#          Pod HAProxy (2 repliche, su worker diversi)
+#                 │ legge Ingress + EndpointSlice dall'apiserver (watch)
+#                 │ e scrive /etc/haproxy/haproxy.cfg
+#                 ▼
+#          IP dei Pod blu/verde, DIRETTAMENTE: il ClusterIP non si usa
+#
+# Il punto chiave: HAProxy NON passa dal ClusterIP del Service. Ogni Pod
+# pronto diventa una riga "server" nel backend. Così l'algoritmo di
+# bilanciamento (roundrobin, leastconn…) e i controlli di salute sono di
+# HAProxy, non il DNAT a caso di kube-proxy.
+# Quando i Pod cambiano, il controller aggiunge o toglie i server con la
+# Runtime API (socket, comando "add server"), SENZA ricaricare HAProxy.
+# Misurato: blu da 3 a 5 repliche → 2 "add server", reload fermi a 3.
+# Le versioni vecchie del controller pre-allocavano invece degli slot
+# "server" spenti (maint): in HAProxy 3.x i server sono dinamici.
+#
+# CLUSTER (profilo lab-haproxy)
+#   5 nodi da 1 GiB, Calico. minikube rifiuta meno di 1800 MB:
+#   serve --force. Misurato: control plane ~840 MiB netti su 1024
+#   (al limite), worker ~350 MiB. Per questo HAProxy sta solo sui worker
+#   (nodeAffinity) e le request del chart scendono da 2 GiB a 64 MiB.
+#
+# LAB
+#   kubectl apply -f 21-architettura-e-haproxy.yaml
+#   IP=$(minikube -p lab-haproxy ip)
+#   curl -H 'Host: app.lab.local' http://$IP:30080/blu       # → un Pod blu
+#   curl -H 'Host: app.lab.local' http://$IP:30080/verde     # → un Pod verde
+#   for i in $(seq 8); do curl -s -o /dev/null -w '%{http_code} ' \
+#       -H 'Host: limitato.lab.local' http://$IP:30080/; done   # 200… poi 429
+#   statistiche: http://$IP:30024/stats   (dal Mac: tunnel ssh, vedi .md)
+#
+# ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
+#   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
+#   cd ~/biodistretto/kubernetes · come si usa: il README della cartella
+#   Lì HAProxy sta FUORI dal cluster, sull'host: entra dai NodePort di
+#   nginx (30080, 30443, 30081) e controlla ogni nodo per conto suo.
+#     grep -n -A3 'type: NodePort' terraform/app/manifests/app.yaml.tftpl
+#   Qui HAProxy sta DENTRO: è un Pod, legge l'apiserver e conosce i Pod.
+#   Fuori: un HAProxy per tutto, ma vede solo nodi (e serve
+#   externalTrafficPolicy: Local per non mentire). Dentro: vede i Pod, ma
+#   davanti serve ancora qualcosa che arrivi ai nodi (NodePort o LB).
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-haproxy
+---
+# ── LE DUE APP ──────────────────────────────────────────────────────────────
+# whoami risponde con il nome del Pod (Hostname): si vede chi ha servito.
+# 3 repliche blu, 2 verdi, sparse sui nodi (maxSkew 1).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blu
+  namespace: lab-haproxy
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: blu }
+  template:
+    metadata:
+      labels: { app: blu }
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: blu }
+      containers:
+        - name: whoami
+          image: traefik/whoami:v1.12
+          ports:
+            - { name: http, containerPort: 80 }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+          resources:                       # nodi da 1 GiB: request piccole e vere
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verde
+  namespace: lab-haproxy
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: verde }
+  template:
+    metadata:
+      labels: { app: verde }
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: verde }
+      containers:
+        - name: whoami
+          image: traefik/whoami:v1.12
+          ports:
+            - { name: http, containerPort: 80 }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
+---
+# ── SERVICE: le annotazioni haproxy.org/* configurano il BACKEND ────────────
+# Il Service qui serve a HAProxy per trovare gli EndpointSlice: il suo
+# ClusterIP resta per il traffico interno, HAProxy non lo usa.
+apiVersion: v1
+kind: Service
+metadata:
+  name: blu
+  namespace: lab-haproxy
+  annotations:
+    haproxy.org/load-balance: roundrobin   # a turno (il default)
+spec:
+  selector: { app: blu }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: verde
+  namespace: lab-haproxy
+  annotations:
+    haproxy.org/load-balance: leastconn    # al Pod con meno connessioni aperte
+spec:
+  selector: { app: verde }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# ── INGRESS: le annotazioni haproxy.org/* configurano il FRONTEND ───────────
+# ingressClassName: haproxy (non nginx come nella 03): un controller
+# ignora gli Ingress delle altre classi.
+# path-rewrite toglie il prefisso: /blu/qualcosa arriva al Pod come
+# /qualcosa. Senza, whoami riceverebbe /blu e risponderebbe lo stesso
+# (whoami risponde a tutto), ma un'app vera darebbe 404.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app
+  namespace: lab-haproxy
+  annotations:
+    haproxy.org/path-rewrite: /(blu|verde)/?(.*) /\2
+spec:
+  ingressClassName: haproxy
+  rules:
+    - host: app.lab.local
+      http:
+        paths:
+          - path: /blu
+            pathType: Prefix
+            backend:
+              service: { name: blu, port: { name: http } }
+          - path: /verde
+            pathType: Prefix
+            backend:
+              service: { name: verde, port: { name: http } }
+---
+# Un secondo Ingress, solo per il rate limit: le annotazioni valgono per
+# tutto l'Ingress, quindi un host a parte non tocca app.lab.local.
+# 5 richieste ogni 10 secondi per IP; oltre, 429 (il default è 403).
+# Il conteggio sta in una stick-table DI OGNI replica: con 2 repliche e
+# kube-proxy che sceglie a caso, il limite reale è fra 5 e 10.
+# Misurato: 12 richieste di fila → 10 (poi 9) volte 200, il resto 429.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: limitato
+  namespace: lab-haproxy
+  annotations:
+    haproxy.org/rate-limit-requests: "5"
+    haproxy.org/rate-limit-period: "10s"
+    haproxy.org/rate-limit-status-code: "429"
+spec:
+  ingressClassName: haproxy
+  rules:
+    - host: limitato.lab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: blu, port: { name: http } }
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Un Ingress controller manda il traffico al ClusterIP del Service?
+# R: Di solito no: HAProxy e ingress-nginx leggono gli EndpointSlice e
+#    parlano con gli IP dei Pod. Così bilanciamento, sticky session e
+#    health check li decide il controller. Il Service serve da "indice".
+#
+# D: Scalo un Deployment da 3 a 6: HAProxy si ricarica?
+# R: No: il controller aggiunge i server con la Runtime API ("add
+#    server"). Ricarica solo se cambia la struttura (nuovo backend, nuova
+#    annotazione). Si vede con: echo "show proc" | socat stdio
+#    /run/haproxy-master.sock → colonna reloads.
+#
+# D: Rate limit con più repliche del controller: è esatto?
+# R: No. Ogni replica ha la sua stick-table: il limite si moltiplica per
+#    il numero di repliche raggiunte. Per un limite globale servono
+#    peers fra le repliche o un limite a monte (nel LB, nell'app).
+#
+# D: roundrobin o leastconn?
+# R: roundrobin per richieste brevi e simili; leastconn per connessioni
+#    lunghe o di durata diversa (websocket, upload, query lente).
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • minikube non ha l'addon HAProxy: si installa con Helm, classe "haproxy"
+# • HAProxy legge Ingress ed EndpointSlice e scrive haproxy.cfg da sé
+# • Il traffico va ai Pod, non al ClusterIP: bilancia HAProxy
+# • Annotazioni: sul Service il backend, sull'Ingress il frontend
+# • Rate limit per replica, non globale
+# • 5 nodi da 1 GiB: --force, request piccole, niente controller sul control plane
+# ══════════════════════════════════════════════════════════════════════════

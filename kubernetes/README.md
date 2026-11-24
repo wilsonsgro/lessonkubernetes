@@ -30,5 +30,6 @@ Il file della lezione vero e proprio (`.sh` o `.yaml`) è accanto alla spiegazio
 | `18-namespace-quote.sh` | ResourceQuota e LimitRange, Deployment fermo a 3/6 per la quota, rete fra Namespace aperta finché una NetworkPolicy non la chiude | 01 | [18](../lezioni/kubernetes/18-namespace-quote.md) |
 | `19-dns-service-discovery.sh` | `resolv.conf`, search list e `ndots:5` misurati con tcpdump e con il log di CoreDNS, record SRV, Service senza Pod, iptables di kube-proxy | 01 (scarica netshoot, circa 200 MB) | [19](../lezioni/kubernetes/19-dns-service-discovery.md) |
 | `20-api-crd-threat-model.sh` | l'API REST con `kubectl proxy` e curl (201/409/404, 401 contro 403), un CRD con schema, STRIDE con le difese misurate su due Pod | 01 | [20](../lezioni/kubernetes/20-api-crd-threat-model.md) |
+| `21-architettura-e-haproxy.sh` | cluster `lab-haproxy` (5 nodi da 1 GiB, `--force`), HAProxy come Ingress controller con Helm al posto di ingress-nginx, `haproxy.cfg` scritto dal controller, `add server` senza reload, rate limit 429 | nessuna: cluster suo, a `lab` spento | [21](../lezioni/kubernetes/21-architettura-e-haproxy.md) |
 
 Dalla cartella principale: `cd ~/kubernetesprj && bash kubernetes/01-architettura-e-lab.sh`.

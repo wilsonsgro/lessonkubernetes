@@ -40,12 +40,12 @@ passo() {
 }
 
 guardia_lab() {
-  local attuale
+  local atteso="${1:-lab}" crea="${2:-01-architettura-e-lab.sh}" attuale
   attuale="$(kubectl config current-context 2>/dev/null || echo nessuno)"
-  if [[ "$attuale" != "lab" ]]; then
-    printf '\033[1;31mSTOP: kubectl punta a "%s", non a "lab".\033[0m\n' "$attuale"
-    echo "      crea o accendi il cluster:  bash $PRJ/kubernetes/01-architettura-e-lab.sh"
-    echo "      oppure:                     kubectl config use-context lab"
+  if [[ "$attuale" != "$atteso" ]]; then
+    printf '\033[1;31mSTOP: kubectl punta a "%s", non a "%s".\033[0m\n' "$attuale" "$atteso"
+    echo "      crea o accendi il cluster:  bash $PRJ/kubernetes/$crea"
+    echo "      oppure:                     kubectl config use-context $atteso"
     exit 1
   fi
 }

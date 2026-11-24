@@ -50,6 +50,7 @@ Obiettivo: capire la **riconciliazione** (stato desiderato contro stato osservat
 | 1.3 | `/kubernetes/3` · `03-service-ingress-networkpolicy.md` | `bash kubernetes/03-service-ingress-networkpolicy.sh` (**serve la 02 applicata**) | Service, EndpointSlice, Ingress, NetworkPolicy |
 | 1.4 | `/kubernetes/17` · `17-pod-multicontainer.md` | `bash kubernetes/17-pod-multicontainer.sh` | init container, sidecar nativo, SIGTERM e PID 1 |
 | 1.5 | `/kubernetes/19` · `19-dns-service-discovery.md` | `bash kubernetes/19-dns-service-discovery.sh` (scarica circa 200 MB) | `resolv.conf`, `ndots:5`, come un nome diventa un IP |
+| 1.6 | `lezioni/kubernetes/21-architettura-e-haproxy.md` | prima `minikube -p lab stop`, poi `bash kubernetes/21-architettura-e-haproxy.sh` (crea un cluster **suo**, `lab-haproxy`: 5 nodi da 1 GiB) | HAProxy come Ingress controller via Helm, traffico diretto ai Pod, Runtime API senza reload, rate limit per replica |
 
 Controllo prima di cominciare ogni giorno:
 
