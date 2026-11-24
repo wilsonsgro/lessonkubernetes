@@ -578,14 +578,6 @@ kubectl -n lab get pvc
 kubectl get pv
 kubectl top nodes
 kubectl top pods -A
-
-k9s --context lab -A
-k9s --context lab-haproxy -A
-
-kubectl -n lab get svc web
-kubectl -n lab get ingress web
-helm uninstall demo -n lab-piattaforma && kubectl delete ns lab-piattaforma
-
 ```
 
 ### Diagnosticare un problema
@@ -624,19 +616,25 @@ kubectl -n lab get pdb db
 
 ### Portainer
 
-
->[portainer](http://192.168.99.101:9001)
-
 >[portainer](https://127.0.0.1:9443)
 
->[portainer](https://192.168.1.58:9443)
-
 >[portainer](https://192.168.1.79:9443)
-
->[portainer](https://192.168.1.35:9443)
 
 ```bash
 admin
 pippobaudo1234
 Pippobaudo1234!9129313
+```
+
+## fast commands
+
+```bash
+k9s --context lab -A
+k9s --context lab-haproxy -A
+
+kubectl -n lab get svc web
+kubectl -n lab get ingress web
+helm uninstall demo -n lab-piattaforma && kubectl delete ns lab-piattaforma
+helm uninstall eco -n lab-helm && kubectl delete ns lab-helm
+minikube -p lab delete
 ```
