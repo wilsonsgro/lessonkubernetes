@@ -1,0 +1,383 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 22. ARCHITETTURA CON HAPROXY, PROMETHEUS E GRAFANA
+# Versione: Kubernetes 1.34 · minikube 1.37 · Calico
+#           chart prometheus-community/kube-prometheus-stack 93.10.1 (Operator v0.95.2)
+#           chart haproxytech/kubernetes-ingress 1.57.1 (HAProxy 3.4)
+# Livello: 4 — Observability
+# ═══════════════════════════════════════════════════════════════════════════
+# La 21 guardava HAProxy "adesso": haproxy.cfg, socket, /stats. Qui lo
+# guardiamo NEL TEMPO. Prometheus raccoglie (pull), conserva e interroga;
+# Grafana disegna; Alertmanager instrada gli alert.
+#
+#   node-exporter ─────────┐
+#   kube-state-metrics ────┤
+#   kubelet / cAdvisor ────┼──[scrape HTTP]──▶ Prometheus ──[PromQL]──▶ Grafana
+#   HAProxy :1024/metrics ─┤   (ogni 30 s)        │
+#   demo-metrics :8000 ────┘                      └──[regole]──▶ Alertmanager
+#
+# Chi dice a Prometheus COSA raccogliere: oggetti Kubernetes, non file.
+#   ServiceMonitor  sceglie dei Service per label → i loro EndpointSlice → i Pod
+#   PodMonitor      sceglie direttamente i Pod per label
+#   PrometheusRule  le regole di alert
+# Prometheus li prende SOLO se hanno la label release=monitoring
+# (serviceMonitorSelector nei valori Helm dello script, e i default del
+# chart per PodMonitor e PrometheusRule). Senza: oggetto creato, target
+# assente, e nessun errore da nessuna parte.
+#
+# I TRE SELETTORI DELL'APP DEMO (se ne manca uno, la catena si spezza)
+#   Prometheus      serviceMonitorSelector: release=monitoring
+#       ↓
+#   ServiceMonitor  selector app=demo-metrics · endpoints[].port: metrics
+#       ↓                                       (NOME della porta del Service)
+#   Service         selector app=demo-metrics
+#       ↓
+#   Pod             :8000/metrics
+#
+# HAPROXY: PodMonitor, non ServiceMonitor (misurato)
+#   Con controller.serviceMonitor.enabled il chart 1.57.1 crea un Service
+#   "-metrics" ClusterIP e ci copia il nodePort della porta stat (30024):
+#   l'apiserver lo rifiuta ("nodePort: Forbidden: may not be used when
+#   type is 'ClusterIP'"). Il PodMonitor non ha bisogno di un Service:
+#   ogni Pod HAProxy è un target, con la sua label pod. È proprio quello
+#   che serve, perché ogni replica ha contatori e stick-table SUOI.
+#   Lo crea il chart (controller.podMonitor nello script), non questo file.
+#
+# CLUSTER (profilo lab-monitoring)
+#   3 nodi da 3 GiB, Calico: control plane + 2 worker (le 2 repliche
+#   HAProxy vogliono worker diversi). I 5 nodi da 1 GiB della 21 non
+#   reggono la stack: Prometheus da solo supera il mezzo GiB.
+#
+# LAB
+#   kubectl apply -f 21-architettura-e-haproxy.yaml   # blu, verde, limitato
+#   kubectl apply -f 22-architettura-haproxy-prometheus-grafana.yaml
+#   IP=$(minikube -p lab-monitoring ip)
+#   curl -H 'Host: demo.lab.local' http://$IP:30080/work   # passa da HAProxy
+#   Grafana: dashboard "Lezione 22 — HAProxy e demo-metrics"
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lab-metrics
+---
+# ── L'APP DEMO: /work conta, /health risponde, /metrics espone ─────────────
+# Python con la sola libreria standard: didattica. Un'app vera usa la
+# libreria client ufficiale. Il Counter vive in memoria: riparte da 0
+# quando il processo riparte (e rate() lo sa).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-metrics-code
+  namespace: lab-metrics
+data:
+  app.py: |
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Lock
+    import time
+
+    requests = 0
+    duration_sum = 0.0
+    lock = Lock()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            global requests, duration_sum
+
+            if self.path == "/health":
+                body = b"ok\n"
+                content_type = "text/plain"
+
+            elif self.path == "/work":
+                start = time.monotonic()
+                time.sleep(0.02)
+                elapsed = time.monotonic() - start
+
+                with lock:
+                    requests += 1
+                    duration_sum += elapsed
+
+                body = b"lavoro completato\n"
+                content_type = "text/plain"
+
+            elif self.path == "/metrics":
+                with lock:
+                    count = requests
+                    total = duration_sum
+
+                metrics = (
+                    "# HELP demo_requests_total Richieste di lavoro\n"
+                    "# TYPE demo_requests_total counter\n"
+                    f"demo_requests_total {count}\n"
+                    "# HELP demo_request_duration_seconds Durata lavoro\n"
+                    "# TYPE demo_request_duration_seconds summary\n"
+                    f"demo_request_duration_seconds_sum {total}\n"
+                    f"demo_request_duration_seconds_count {count}\n"
+                )
+                body = metrics.encode()
+                content_type = "text/plain; version=0.0.4"
+
+            else:
+                body = b"not found\n"
+                content_type = "text/plain"
+                self.send_response(404)
+                self.send_header("Content-Type", content_type)
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    ThreadingHTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-metrics
+  namespace: lab-metrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-metrics
+  template:
+    metadata:
+      labels:
+        app: demo-metrics
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: app
+          image: python:3.12-alpine
+          command: ["python", "-u", "/app/app.py"]
+          ports:
+            - name: metrics
+              containerPort: 8000
+          volumeMounts:
+            - name: code
+              mountPath: /app
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: code
+          configMap:
+            name: demo-metrics-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-metrics
+  namespace: lab-metrics
+  labels:
+    app: demo-metrics                # ← il ServiceMonitor sceglie QUESTA label
+spec:
+  selector:
+    app: demo-metrics
+  ports:
+    - name: metrics                  # ← e QUESTO nome di porta
+      port: 8000
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: demo-metrics
+  namespace: lab-metrics
+  labels:
+    release: monitoring              # ← senza, Prometheus non lo guarda
+spec:
+  selector:
+    matchLabels:
+      app: demo-metrics
+  namespaceSelector:
+    matchNames:
+      - lab-metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+---
+# ── LA DEMO DIETRO HAPROXY ──────────────────────────────────────────────────
+# Lo stesso controller della 21: il traffico verso /work passa da HAProxy,
+# così lo stesso click muove DUE serie: demo_requests_total (l'app) e
+# haproxy_backend_http_requests_total{proxy="lab-metrics_svc_demo-metrics_metrics"}.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo
+  namespace: lab-metrics
+spec:
+  ingressClassName: haproxy
+  rules:
+    - host: demo.lab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: demo-metrics, port: { name: metrics } }
+---
+# ── GLI ALERT ───────────────────────────────────────────────────────────────
+# Prometheus valuta, Alertmanager instrada. Inactive → Pending (condizione
+# vera da meno di "for") → Firing. Firing NON vuol dire messaggio inviato:
+# qui nessun receiver è configurato.
+# Sta in "monitoring" con release=monitoring: il ruleSelector di default
+# del chart sceglie le regole con la label della Release.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: lezione-22
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: laboratorio.rules
+      rules:
+        - alert: DemoMetricsNonDisponibile
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="lab-metrics",
+              deployment="demo-metrics"
+            } < 1
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Applicazione demo-metrics non disponibile"
+            description: "Il Deployment non ha repliche disponibili."
+        # Vista da HAProxy: un backend senza server vuol dire 503 per gli
+        # utenti, anche se kube-state-metrics non ha ancora detto niente.
+        # min by (proxy): basta che UNA replica lo veda vuoto.
+        - alert: HAProxyBackendSenzaServer
+          expr: |
+            min by (proxy) (
+              haproxy_backend_active_servers{proxy=~"lab-.*"}
+            ) == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Backend {{ $labels.proxy }} senza server attivi"
+            description: "HAProxy non ha nessun Pod pronto verso cui mandare il traffico."
+        # Il rate limit della 21 visto dall'alto: 429 al secondo per replica.
+        - alert: HAProxyRateLimitAttivo
+          expr: |
+            sum by (pod) (
+              rate(haproxy_frontend_requests_denied_total{proxy="http"}[2m])
+            ) > 0
+          for: 0m
+          labels:
+            severity: info
+          annotations:
+            summary: "{{ $labels.pod }} sta rispondendo 429"
+            description: "La stick-table di questa replica ha superato il limite."
+---
+# ── LA DASHBOARD, DICHIARATA ────────────────────────────────────────────────
+# Il sidecar di Grafana (chart kube-prometheus-stack) cerca in TUTTI i
+# namespace le ConfigMap con label grafana_dashboard="1" e le carica da
+# sé: niente clic, la dashboard sta in git come il resto.
+# datasource uid "prometheus" = quella che il chart crea.
+# Pannelli per REPLICA (by pod): sommare a occhio due HAProxy nasconde
+# proprio la differenza che la 21 ha misurato sul rate limit.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-lezione-22
+  namespace: lab-metrics
+  labels:
+    grafana_dashboard: "1"
+data:
+  lezione-22.json: |
+    {
+      "uid": "lezione-22",
+      "title": "Lezione 22 — HAProxy e demo-metrics",
+      "schemaVersion": 39,
+      "time": { "from": "now-30m", "to": "now" },
+      "refresh": "30s",
+      "panels": [
+        { "id": 1, "type": "timeseries", "title": "HAProxy: richieste/s per backend",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps" } },
+          "targets": [ { "refId": "A", "legendFormat": "{{proxy}}",
+            "expr": "sum by (proxy) (rate(haproxy_backend_http_requests_total{proxy=~\"lab-.*\"}[1m]))" } ] },
+        { "id": 2, "type": "timeseries", "title": "HAProxy: richieste/s per replica",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps" } },
+          "targets": [ { "refId": "A", "legendFormat": "{{pod}}",
+            "expr": "sum by (pod) (rate(haproxy_backend_http_requests_total{proxy=~\"lab-.*\"}[1m]))" } ] },
+        { "id": 3, "type": "timeseries", "title": "HAProxy: server attivi per backend e replica",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "legendFormat": "{{proxy}} · {{pod}}",
+            "expr": "haproxy_backend_active_servers{proxy=~\"lab-.*\"}" } ] },
+        { "id": 4, "type": "timeseries", "title": "HAProxy: 429 del rate limit al secondo, per replica",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps" } },
+          "targets": [ { "refId": "A", "legendFormat": "{{pod}}",
+            "expr": "sum by (pod) (rate(haproxy_frontend_requests_denied_total{proxy=\"http\"}[1m]))" } ] },
+        { "id": 5, "type": "timeseries", "title": "demo-metrics: richieste/s",
+          "gridPos": { "x": 0, "y": 16, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps" } },
+          "targets": [ { "refId": "A", "legendFormat": "rate",
+            "expr": "sum(rate(demo_requests_total[1m]))" } ] },
+        { "id": 6, "type": "stat", "title": "demo-metrics: Counter corrente (non è un totale storico)",
+          "gridPos": { "x": 8, "y": 16, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "refId": "A", "expr": "sum(demo_requests_total)" } ] },
+        { "id": 7, "type": "timeseries", "title": "demo-metrics: durata media (ms)",
+          "gridPos": { "x": 16, "y": 16, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "ms" } },
+          "targets": [ { "refId": "A", "legendFormat": "media",
+            "expr": "1000 * sum(rate(demo_request_duration_seconds_sum[5m])) / sum(rate(demo_request_duration_seconds_count[5m]))" } ] }
+      ]
+    }
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Prometheus e Grafana fanno lo stesso lavoro?
+# R: No. Prometheus raccoglie, conserva, interroga e valuta le regole;
+#    Grafana disegna (da Prometheus e da altre sorgenti).
+#
+# D: up=1 vuol dire che l'app funziona?
+# R: No: l'ultimo scrape di /metrics è riuscito. /work può essere lento
+#    o rotto lo stesso.
+#
+# D: ServiceMonitor creato, target assente: dove guardi?
+# R: Ai tre selettori: release=monitoring sul ServiceMonitor, la label del
+#    Service, il NOME della porta. Poi gli EndpointSlice del Service.
+#
+# D: Perché le due repliche di HAProxy danno numeri diversi?
+# R: Ogni replica ha connessioni, contatori e stick-table suoi; kube-proxy
+#    sceglie a caso quale riceve la connessione. In PromQL: by (pod) per
+#    vederle, sum per l'aggregato, e sapere quale delle due stai guardando.
+#
+# D: L'HPA della 06 usa Prometheus, ora che c'è?
+# R: No: usa la Resource Metrics API di metrics-server. Per scalare su
+#    metriche applicative serve un adapter o KEDA.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • kube-prometheus-stack con Helm: Operator, Prometheus, Alertmanager,
+#   Grafana, node-exporter, kube-state-metrics
+# • Cosa raccogliere lo dicono ServiceMonitor e PodMonitor, con release=monitoring
+# • HAProxy: PodMonitor dal chart, un target per replica, metriche haproxy_*
+# • rate() sui Counter, by (pod) per le repliche, sum per l'aggregato
+# • Alert: PrometheusRule → Pending → Firing; Alertmanager per inviarli
+# • Dashboard come ConfigMap grafana_dashboard="1": dichiarata, non cliccata
+# ══════════════════════════════════════════════════════════════════════════

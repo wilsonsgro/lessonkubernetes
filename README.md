@@ -119,6 +119,7 @@ esercizi. Leggila mentre lo script gira. L'indice con i link è in `kubernetes/R
 | `19-dns-service-discovery.sh` | `resolv.conf`, search list e `ndots:5` misurati con tcpdump e con il log di CoreDNS, record SRV, Service senza Pod, iptables di kube-proxy | 01 (scarica netshoot, circa 200 MB) |
 | `20-api-crd-threat-model.sh` | l'API REST con `kubectl proxy` e curl (201/409/404, 401 contro 403), un CRD con schema, STRIDE con le difese misurate su due Pod | 01 |
 | `21-architettura-e-haproxy.sh` | cluster `lab-haproxy` (5 nodi da 1 GiB, `--force`), HAProxy come Ingress controller con Helm al posto di ingress-nginx, `haproxy.cfg` scritto dal controller, `add server` senza reload, rate limit 429 | nessuna: cluster suo, a `lab` spento |
+| `22-architettura-haproxy-prometheus-grafana.sh` | cluster `lab-monitoring` (3 nodi da 3 GiB), kube-prometheus-stack con Helm sopra lo HAProxy della 21: PodMonitor per replica (il ServiceMonitor del chart si rompe con i NodePort), app con ServiceMonitor dietro HAProxy, PromQL, dashboard da ConfigMap, alert pending → firing con 503 | 21: i manifest della 21; cluster suo, gli altri spenti |
 
 Esempio:
 
