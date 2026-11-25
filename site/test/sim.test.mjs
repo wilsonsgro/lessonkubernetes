@@ -175,3 +175,40 @@ test('precedenza delle variabili di Ansible: -e vince su tutto, i defaults del r
   assert.deepEqual(S.precedenza({ groupAll: '1', group: '2', roleVars: '3' }, F), { valore: '3', fonte: 'roleVars' });
   assert.deepEqual(S.precedenza({ defaults: 'a', extra: 'z', setFact: 'y' }, F), { valore: 'z', fonte: 'extra' });
 });
+
+test('rate(): con traffico costante il tasso è quello vero, e un riavvio non lo fa crollare', () => {
+  const v = S.serieContatore({ rps1: 2, rps2: 2, cambio: 6, riavvio: 0, n: 13, passo: 15 });
+  assert.deepEqual(v.slice(0, 5), [0, 30, 60, 90, 120]);
+  const r = S.rateContatore({ campioni: v, passo: 15, finestra: 60 });
+  assert.equal(r[0].rate, null);
+  for (const x of r.slice(4)) assert.equal(x.rate, 2);
+  const conRiavvio = S.serieContatore({ rps1: 2, rps2: 2, cambio: 6, riavvio: 8, n: 13, passo: 15 });
+  assert.equal(conRiavvio[8], 30);
+  const rr = S.rateContatore({ campioni: conRiavvio, passo: 15, finestra: 60 });
+  assert.equal(rr[9].rate, 2);
+  assert.ok(rr[9].differenza < 0, 'la differenza ingenua va sotto zero');
+});
+
+test('rate(): il contatore sale sempre, il tasso scende quando il traffico rallenta', () => {
+  const v = S.serieContatore({ rps1: 5, rps2: 1, cambio: 6, riavvio: 0, n: 13, passo: 15 });
+  for (let i = 1; i < v.length; i++) assert.ok(v[i] > v[i - 1]);
+  const r = S.rateContatore({ campioni: v, passo: 15, finestra: 60 });
+  assert.equal(r[6].rate, 5);
+  assert.equal(r[12].rate, 1);
+  assert.ok(r[8].rate < 5 && r[8].rate > 1);
+});
+
+test('alert: for 1m, Pending prima e Firing dopo un minuto; una condizione breve non parte mai', () => {
+  const t = S.statiAlert({ inizio: 30, fine: 180, intervallo: 15, per: 60, durata: 240 });
+  const a = Object.fromEntries(t.map(x => [x.t, x.stato]));
+  assert.equal(a[15], 'inactive');
+  assert.equal(a[30], 'pending');
+  assert.equal(a[75], 'pending');
+  assert.equal(a[90], 'firing');
+  assert.equal(a[180], 'inactive');
+  const breve = S.statiAlert({ inizio: 30, fine: 60, intervallo: 15, per: 60, durata: 240 });
+  assert.ok(!breve.some(x => x.stato === 'firing'));
+  assert.ok(breve.some(x => x.stato === 'pending'));
+  const subito = S.statiAlert({ inizio: 30, fine: 60, intervallo: 15, per: 0, durata: 120 });
+  assert.equal(subito.find(x => x.t === 30).stato, 'firing');
+});

@@ -1,0 +1,23 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: demo-alert
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: laboratorio.rules
+      rules:
+        - alert: DemoMetricsNonDisponibile
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="lab-metrics",
+              deployment="demo-metrics"
+            } < 1
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Applicazione demo-metrics non disponibile"
+            description: "Il Deployment non ha repliche disponibili."

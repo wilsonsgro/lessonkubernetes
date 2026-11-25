@@ -1,0 +1,50 @@
+[
+ {
+  "concetto": "metrics-server contro Prometheus",
+  "da": "06",
+  "verso": [
+   "25"
+  ],
+  "perche": "L'HPA della 06 resta sulla Resource Metrics API: Prometheus aggiunge storico, PromQL e metriche applicative, non lo sostituisce"
+ },
+ {
+  "concetto": "Metodo di troubleshooting",
+  "da": "08",
+  "verso": [
+   "25"
+  ],
+  "perche": "Stato → eventi → log → dentro → intorno, applicato a target assenti o DOWN; il ServiceMonitor senza target è il Service con il selector sbagliato"
+ },
+ {
+  "concetto": "helm upgrade --install",
+  "da": "09",
+  "verso": [
+   "25"
+  ],
+  "perche": "kube-prometheus-stack si installa come Release monitoring, con un file di values e una versione del Chart fissata"
+ },
+ {
+  "concetto": "Repliche HAProxy e contatori locali",
+  "da": "21",
+  "verso": [
+   "25"
+  ],
+  "perche": "Ogni replica ha connessioni, contatori e stick-table suoi: in Grafana si sceglie fra la singola replica e l'aggregato"
+ },
+ {
+  "concetto": "Storage effimero e PVC",
+  "da": "05",
+  "verso": [
+   "25"
+  ],
+  "perche": "Senza PVC le serie di Prometheus si perdono quando il Pod viene sostituito"
+ },
+ {
+  "concetto": "Controller e riconciliazione",
+  "da": "01",
+  "verso": [
+   "25"
+  ],
+  "perche": "Prometheus Operator osserva ServiceMonitor e PrometheusRule e riconcilia la configurazione, come i controller della 01"
+ }
+]

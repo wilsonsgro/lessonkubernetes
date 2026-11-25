@@ -1,6 +1,6 @@
 # Corso Kubernetes — sito didattico
 
-Sito statico in italiano delle lezioni 01–09 e degli approfondimenti 21 (HAProxy), 22 (Terraform), 23 (Ansible) e 24 (un progetto reale, il Biodistretto su minikube).
+Sito statico in italiano delle lezioni 01–09 e degli approfondimenti 21 (HAProxy), 22 (Terraform), 23 (Ansible), 24 (un progetto reale, il Biodistretto su minikube) e 25 (Prometheus, Grafana e metriche Kubernetes).
 Una volta generato funziona offline: niente CDN, niente chiamate esterne, niente backend.
 Indirizzo sul lab: <http://lessons.kubernates.local>
 
@@ -51,6 +51,7 @@ nginx legge direttamente `dist/`.
 | `content/flashcard.json` | carte domanda/risposta per il ripasso |
 | `content/terraform/` | lezioni 22 e 23: i file delle parti 00–10 di `~/kubernetesprj/terraform/` e `lezioni/terraform/` copiati tali e quali, più gli appunti di sintesi (`appunti.md` per la 22, `appunti-23.md` per la 23) e `mappa.json` (collegamenti alle altre lezioni) |
 | `content/progetto/` | lezione 24: `file/` con i 37 file di `~/biodistretto/kubernetes` (IP del laboratorio mascherato), `appunti-24.md`, `comandi.passi` (i comandi del README) e `mappa.json` |
+| `content/monitoraggio/` | lezione 25: `lezione-25.md` (il materiale didattico senza intestazione YAML né la sezione 15, che è una specifica per l'agente), `file/` con i tre YAML della lezione estratti tali e quali, `appunti-25.md`, `comandi.passi` (sezioni 5–10 più la pulizia) e `mappa.json` |
 | `content/approfondimenti/` | materiale integrativo fuori dal repository del laboratorio, reso in fondo alla Spiegazione della lezione (oggi: `21-haproxy-cfg-tls.md`, haproxy.cfg e TLS, con il suo quiz `quiz/quiz-21-tls.json`); si collega in `APPROFONDIMENTI` di `src/build.mjs` |
 
 `src/importa.mjs` legge `content/corso.md` in modo deterministico: ogni `### Fonte originale: <percorso>` diventa
@@ -75,6 +76,9 @@ scrivere), e ogni indirizzo `192.168.x.y` diventa `IP-DEL-LAB`.
 
 ## Fedeltà alle sorgenti
 
+`test/monitoraggio.test.mjs` controlla che i tre YAML della lezione 25 (`values-monitoring.yaml`, `demo-metrics.yaml`,
+`demo-alert.yaml`) siano byte per byte i blocchi delle sezioni 5.3, 8.1 e 10.1 di `lezione-25.md`.
+
 `test/importa.test.mjs` confronta con SHA-256 ogni sorgente in `content/corso.md` con il file vero in
 `../lezioni/kubernetes/` e `../kubernetes/`. Se quelle cartelle mancano (build su un'altra macchina) il test
 viene saltato e lo segnala; sul lab deve passare, non essere saltato.
@@ -96,6 +100,10 @@ Per Terraform e Ansible (lezioni 22 e 23) non si copia a mano: `npm run importa:
 Per il progetto reale (lezione 24): `npm run importa:progetto` ricopia i file da `/biodistretto/kubernetes`
 (o dalla cartella passata come argomento), rifiuta i file vietati e gli IP non mascherati; `appunti-24.md`,
 `comandi.passi` e `quiz-24.json` si rivedono a mano.
+
+La lezione 25 non ha un repository del laboratorio: `src/monitoraggio.mjs` legge `content/monitoraggio/`. Se cambia un
+YAML nel testo, va ricopiato in `file/` (il test lo segnala); quiz `quiz-25.json`, flashcard e glossario si rivedono a mano.
+Il blocco ` ```promql ` è colorato da una grammatica minima in `src/evidenzia.mjs`.
 
 ## Sicurezza
 

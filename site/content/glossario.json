@@ -250,7 +250,8 @@
    "01",
    "03",
    "08",
-   "21"
+   "21",
+   "25"
   ],
   "alias": [
    "endpoint",
@@ -480,7 +481,8 @@
   "termine": "HPA",
   "definizione": "HorizontalPodAutoscaler: decide quante repliche, con desiderate = ceil(attuali × valore / target), dove la CPU è in percentuale delle requests; behavior regola velocità di salita e discesa.",
   "lezioni": [
-   "06"
+   "06",
+   "25"
   ],
   "alias": [
    "HorizontalPodAutoscaler"
@@ -491,7 +493,8 @@
   "definizione": "Addon che fornisce kubectl top e le metriche all'HPA; se assente o appena partito l'HPA mostra <unknown>.",
   "lezioni": [
    "01",
-   "06"
+   "06",
+   "25"
   ],
   "alias": [
    "kubectl top"
@@ -593,7 +596,8 @@
   "definizione": "Pacchetto Helm di template, valori (values.yaml, values.schema.json) e metadati (Chart.yaml con version e appVersion).",
   "lezioni": [
    "09",
-   "21"
+   "21",
+   "25"
   ],
   "alias": [
    "Helm",
@@ -604,7 +608,8 @@
   "termine": "release",
   "definizione": "Installazione di un Chart con un nome e una storia numerata di revision, salvata nel cluster come Secret helm.sh/release.v1; rollback aggiunge una revision.",
   "lezioni": [
-   "09"
+   "09",
+   "25"
   ],
   "alias": [
    "revision"
@@ -627,7 +632,8 @@
   "lezioni": [
    "07",
    "21",
-   "24"
+   "24",
+   "25"
   ],
   "alias": [
    "haproxy-kubernetes-ingress"
@@ -668,7 +674,8 @@
   "termine": "stick-table",
   "definizione": "Tabella di stato locale di ogni processo HAProxy, usata per esempio dal rate limit: con più repliche ognuna ha la sua, quindi il limite non è globale senza peers.",
   "lezioni": [
-   "21"
+   "21",
+   "25"
   ],
   "alias": [
    "peers",
@@ -1153,5 +1160,151 @@
    "externalTrafficPolicy: Local"
   ],
   "soloLezioni": true
+ },
+ {
+  "termine": "Prometheus",
+  "definizione": "Sistema che raccoglie metriche con scrape periodici degli endpoint /metrics, le conserva come serie temporali, le fa interrogare in PromQL e valuta le regole di alert.",
+  "lezioni": [
+   "06",
+   "25"
+  ]
+ },
+ {
+  "termine": "Grafana",
+  "definizione": "Applicazione di dashboard: interroga Prometheus (e altre sorgenti) e disegna pannelli. Ha anche un suo sistema di alert. Non raccoglie né conserva le metriche.",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "PromQL",
+  "definizione": "Il linguaggio di query di Prometheus: selettori di serie con label, funzioni come rate() e increase(), aggregazioni come sum by (...).",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "scrape",
+  "definizione": "La lettura periodica di un endpoint /metrics da parte di Prometheus (modello pull). Uno scrape riuscito dà up=1, ma non prova che l'app funzioni per l'utente.",
+  "lezioni": [
+   "25"
+  ],
+  "alias": [
+   "scraping"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "ServiceMonitor",
+  "definizione": "Risorsa di Prometheus Operator: sceglie i Service per label e dice su quale porta con nome, path e intervallo fare scrape. Prometheus la usa solo se combacia con il suo serviceMonitorSelector.",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "PodMonitor",
+  "definizione": "Risorsa di Prometheus Operator come il ServiceMonitor, ma sceglie direttamente i Pod invece dei Service.",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "PrometheusRule",
+  "definizione": "Risorsa di Prometheus Operator con regole di registrazione e di alert. Prometheus la carica solo se combacia con ruleSelector e ruleNamespaceSelector.",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "Alertmanager",
+  "definizione": "Riceve gli alert da Prometheus, li raggruppa, li silenzia e li instrada ai receiver configurati. Senza un receiver un alert Firing non manda niente.",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "Prometheus Operator",
+  "definizione": "Controller che gestisce Prometheus e Alertmanager tramite risorse custom (Prometheus, ServiceMonitor, PodMonitor, PrometheusRule, Alertmanager) e riconcilia la configurazione.",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "kube-prometheus-stack",
+  "definizione": "Chart Helm della comunità Prometheus: Prometheus Operator, Prometheus, Grafana, Alertmanager, node-exporter, kube-state-metrics, dashboard e regole pronte.",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "kube-state-metrics",
+  "definizione": "Espone come metriche lo stato degli oggetti Kubernetes: repliche disponibili dei Deployment, fase dei Pod, restart dei container.",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "node-exporter",
+  "definizione": "Exporter che gira su ogni nodo ed espone le risorse del sistema operativo: CPU, memoria, dischi, rete.",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "cAdvisor",
+  "definizione": "Componente integrato nel kubelet che misura CPU e memoria dei container (container_cpu_usage_seconds_total, container_memory_working_set_bytes).",
+  "lezioni": [
+   "25"
+  ]
+ },
+ {
+  "termine": "Counter",
+  "definizione": "Tipo di metrica cumulativo: sale sempre e riparte da zero quando il processo riparte. Si legge con rate() o increase(), non con il valore grezzo.",
+  "lezioni": [
+   "25"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "Gauge",
+  "definizione": "Tipo di metrica che sale e scende, come la memoria libera o le repliche disponibili. Si legge così com'è: rate() non ha senso.",
+  "lezioni": [
+   "25"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "rate()",
+  "definizione": "Funzione PromQL: l'aumento al secondo di un Counter in una finestra, per esempio rate(demo_requests_total[1m]). Gestisce il ritorno a zero del contatore.",
+  "lezioni": [
+   "25"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "serie temporale",
+  "definizione": "Sequenza di campioni (istante, valore) identificata da nome della metrica più combinazione di label.",
+  "lezioni": [
+   "25"
+  ],
+  "alias": [
+   "serie temporali"
+  ]
+ },
+ {
+  "termine": "cardinalità",
+  "definizione": "Il numero di serie temporali distinte: cresce con ogni valore nuovo di ogni label. Label come user_id o request_id la fanno esplodere, e con lei memoria e disco di Prometheus.",
+  "lezioni": [
+   "25"
+  ],
+  "soloLezioni": true
+ },
+ {
+  "termine": "Resource Metrics API",
+  "definizione": "API metrics.k8s.io con CPU e memoria di nodi e Pod, servita di solito da metrics-server: è quella che usano kubectl top e l'HPA standard.",
+  "lezioni": [
+   "06",
+   "25"
+  ]
  }
 ]

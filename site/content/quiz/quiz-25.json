@@ -1,0 +1,114 @@
+[
+ {
+  "id": "25-1",
+  "domanda": "Prometheus e Grafana fanno lo stesso lavoro?",
+  "opzioni": [
+   "Sì, Grafana è l'interfaccia web di Prometheus e ne conserva i dati",
+   "No: Prometheus raccoglie, conserva e interroga serie temporali; Grafana le visualizza, anche da altre sorgenti",
+   "No: Grafana raccoglie le metriche, Prometheus le disegna",
+   "Sì, ma Grafana aggiunge gli alert"
+  ],
+  "corretta": 1,
+  "spiegazione": "Prometheus fa scrape, conserva le serie e risponde in PromQL; Grafana interroga Prometheus (e altre sorgenti) e costruisce dashboard. Grafana non sostituisce raccolta e conservazione.",
+  "fonte": "monitoraggio/lezione-25.md § 2",
+  "tipo": "didattica"
+ },
+ {
+  "id": "25-2",
+  "domanda": "Chi espone lo stato dei Deployment, come kube_deployment_status_replicas_available?",
+  "opzioni": [
+   "node-exporter",
+   "kubelet / cAdvisor",
+   "kube-state-metrics",
+   "metrics-server"
+  ],
+  "corretta": 2,
+  "spiegazione": "kube-state-metrics traduce in metriche lo stato degli oggetti dell'API Kubernetes. node-exporter osserva il sistema operativo del nodo, cAdvisor l'uso di CPU e memoria dei container.",
+  "fonte": "monitoraggio/lezione-25.md § 3",
+  "tipo": "didattica"
+ },
+ {
+  "id": "25-3",
+  "domanda": "up=1 per il target demo-metrics garantisce che l'app funzioni per gli utenti?",
+  "opzioni": [
+   "Sì, up=1 vuol dire servizio sano end-to-end",
+   "Sì, se anche la readiness è verde",
+   "No: dice solo che l'ultimo scrape di /metrics è riuscito",
+   "No: dice che il Pod è Running"
+  ],
+  "corretta": 2,
+  "spiegazione": "up=1 significa che l'ultimo scrape è riuscito. Un'app può rispondere su /metrics ed essere lenta o sbagliare su /work.",
+  "fonte": "monitoraggio/lezione-25.md § 7.1",
+  "tipo": "didattica"
+ },
+ {
+  "id": "25-4",
+  "domanda": "Un ServiceMonitor seleziona direttamente un Deployment?",
+  "opzioni": [
+   "Sì, con spec.selector sulle label del Deployment",
+   "No: seleziona Service per label e ne usa la porta con nome; è il Service a trovare i Pod con il suo selector",
+   "No: seleziona i Pod direttamente, come un PodMonitor",
+   "Sì, tramite namespaceSelector"
+  ],
+  "corretta": 1,
+  "spiegazione": "La catena è Prometheus → ServiceMonitor → Service → Pod: tre selettori, e endpoints[].port è il nome della porta del Service.",
+  "fonte": "monitoraggio/lezione-25.md § 8.2",
+  "tipo": "didattica"
+ },
+ {
+  "id": "25-5",
+  "domanda": "Perché si usa rate() su un Counter come demo_requests_total?",
+  "opzioni": [
+   "Per avere il totale storico affidabile anche dopo i riavvii",
+   "Per stimare l'aumento al secondo nella finestra, per esempio le richieste al secondo",
+   "Per trasformarlo in una Gauge che sale e scende come la memoria",
+   "Perché senza rate() Prometheus non conserva il Counter"
+  ],
+  "corretta": 1,
+  "spiegazione": "Un Counter di 10000 dice poco sul carico attuale: rate(...[5m]) ne stima il tasso di incremento. Su una Gauge rate() cambierebbe il significato del risultato.",
+  "fonte": "monitoraggio/lezione-25.md § 7.5",
+  "tipo": "didattica"
+ },
+ {
+  "id": "25-6",
+  "domanda": "Installi kube-prometheus-stack: l'HPA della lezione 06 passa a usare Prometheus?",
+  "opzioni": [
+   "Sì, il Chart registra Prometheus come Resource Metrics API",
+   "Sì, ma solo per le metriche di CPU",
+   "No: l'HPA standard usa la Resource Metrics API, normalmente da metrics-server; per metriche applicative serve un adapter o KEDA",
+   "No, perché l'HPA legge solo le dashboard di Grafana"
+  ],
+  "corretta": 2,
+  "spiegazione": "metrics-server e Prometheus non sono equivalenti: installare Prometheus non fa migrare l'HPA.",
+  "fonte": "monitoraggio/lezione-25.md § 4",
+  "tipo": "didattica"
+ },
+ {
+  "id": "25-7",
+  "domanda": "Che cosa significa for: 1m nella PrometheusRule DemoMetricsNonDisponibile?",
+  "opzioni": [
+   "La regola viene valutata una volta al minuto",
+   "L'alert resta Firing almeno un minuto anche se la condizione torna falsa",
+   "La condizione deve restare vera di continuo per almeno un minuto prima che l'alert passi da Pending a Firing",
+   "Alertmanager manda il messaggio entro un minuto"
+  ],
+  "corretta": 2,
+  "spiegazione": "Inactive → Pending (condizione vera da meno di for) → Firing. Se la condizione torna falsa durante Pending, l'alert torna Inactive. Gli intervalli di scrape e di valutazione spostano i tempi reali.",
+  "fonte": "monitoraggio/lezione-25.md § 10.2",
+  "tipo": "didattica"
+ },
+ {
+  "id": "25-8",
+  "domanda": "Perché le due repliche HAProxy della lezione 21 possono contare diversamente lo stesso rate limit?",
+  "opzioni": [
+   "Perché Prometheus campiona una replica sola",
+   "Perché ogni replica può tenere stick-table e contatori locali, se lo stato non è sincronizzato",
+   "Perché il Service bilancia in roundrobin solo sulle connessioni nuove",
+   "Perché Grafana somma sempre le repliche"
+  ],
+  "corretta": 1,
+  "spiegazione": "Ogni replica ha connessioni, contatori e stick-table suoi: in Grafana si decide guardando le label se il pannello mostra una replica o l'aggregato.",
+  "fonte": "monitoraggio/lezione-25.md § 12",
+  "tipo": "didattica"
+ }
+]

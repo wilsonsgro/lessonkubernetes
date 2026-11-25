@@ -18,4 +18,4 @@ export function importa(testo) {
 }
 export function azzera() { scrivi(vuoto()); }
 
-export const ORDINE = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '21', '22', '23', '24'];
+export const ORDINE = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '21', '22', '23', '24', '25'];

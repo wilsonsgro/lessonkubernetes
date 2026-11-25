@@ -330,6 +330,46 @@ D['24'] = {
   ],
 };
 
+D['25'] = {
+  titolo: 'Dalle metriche al grafico e all\'alert, e i tre selettori',
+  vb: '0 0 360 470',
+  corpo: [
+    B(10, 10, 80, 36, ['node-', 'exporter'], 'sorgenti'),
+    B(96, 10, 80, 36, ['kube-state-', 'metrics'], 'sorgenti ksm'),
+    B(182, 10, 80, 36, ['kubelet', 'cAdvisor'], 'sorgenti'),
+    B(268, 10, 82, 36, ['app', '/metrics'], 'sorgenti app'),
+    F('M50 46 V66', 'scrape'), F('M136 46 V66', 'scrape'), F('M222 46 V66', 'scrape'), F('M309 46 V66', 'scrape'),
+    T(14, 62, 'scrape HTTP (pull)'),
+    B(10, 66, 340, 40, ['Prometheus', 'serie temporali · PromQL · regole'], 'prometheus'),
+    F('M90 106 V126', 'grafana'), F('M270 106 V126', 'alert'),
+    B(10, 126, 160, 40, ['Grafana', 'dashboard · PromQL'], 'grafana'),
+    B(190, 126, 160, 40, ['Alertmanager', 'raggruppa · instrada'], 'alert'),
+    B(10, 176, 340, 30, ['metrics-server → kubectl top e HPA: un\'altra strada'], 'hpa', 'spento'),
+    T(10, 226, 'I tre selettori del laboratorio'),
+    B(10, 234, 340, 34, ['Prometheus', 'serviceMonitorSelector: release=monitoring'], 'sel prometheus'),
+    F('M180 268 V280', 'sel'),
+    B(10, 280, 340, 34, ['ServiceMonitor demo-metrics', 'selector app=demo-metrics · port: metrics'], 'sel sm'),
+    F('M180 314 V326', 'sel'),
+    B(10, 326, 340, 34, ['Service demo-metrics · selector app=demo-metrics'], 'sel svc'),
+    F('M180 360 V372', 'sel'),
+    B(10, 372, 340, 30, ['Pod :8000/metrics · lab-metrics'], 'sel sorgenti app'),
+    T(10, 422, 'Lezione 21: HAProxy osservato nel tempo'),
+    B(10, 430, 150, 34, ['HAProxy A · B', 'contatori locali'], 'haproxy'),
+    F('M160 447 H190', 'haproxy'),
+    B(190, 430, 160, 34, ['exporter → Prometheus', '→ Grafana per replica'], 'haproxy'),
+  ],
+  passi: [
+    ['sorgenti ksm', /observability|architettura|kube-state|node-exporter|sorgenti/i, 'Quattro sorgenti, quattro responsabilità: nodi, oggetti Kubernetes, container, applicazione.'],
+    ['hpa', /metrics-server|equivalenti|hpa/i, 'metrics-server serve kubectl top e l\'HPA; Prometheus non lo sostituisce da solo.'],
+    ['prometheus grafana', /prometheus e grafana|che cosa fanno|apriamo|promql|counter|gauge|query|cpu|memoria|stato dei deployment|^up/i, 'Prometheus conserva e interroga, Grafana disegna.'],
+    ['sel', /operator|kube-prometheus-stack|values|installazione|repository|prerequisiti|selettor|selector|servicemonitor|un'app|applica|verifica in prometheus|troubleshooting|catena/i, 'Tre selettori in fila: se una label manca, l\'oggetto a valle non viene scelto.'],
+    ['grafana', /dashboard|pannello|p95|p99/i, 'Le dashboard leggono le stesse query PromQL.'],
+    ['alert', /alert|prometheusrule|prova controllata|inactive|firing/i, 'La regola la valuta Prometheus; Alertmanager decide a chi mandarla.'],
+    ['haproxy', /haproxy|lezione 21|esperimento/i, 'Due repliche, contatori e stick-table locali: per replica o aggregato.'],
+    ['prometheus', /sicurezza|persistenza|cardinalit|storage|esercizi|quiz|frase|chi fa cosa|riferimenti|portarlo fuori/i, 'Retention, persistenza e cardinalità decidono quanto costa Prometheus.'],
+  ],
+};
+
 export function diagramma(id) {
   const d = D[id];
   if (!d) return '';

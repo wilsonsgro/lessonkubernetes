@@ -8,6 +8,7 @@ import { leggiPassi } from './passi.mjs';
 import { diagramma } from './diagrammi.mjs';
 import { caricaCapitolo } from './terraform.mjs';
 import { caricaProgetto } from './progetto.mjs';
+import { caricaMonitoraggio } from './monitoraggio.mjs';
 import { paginaLezione, paginaHome, paginaGlossario, paginaFlashcard, paginaPreferiti } from './pagine.mjs';
 
 const RADICE = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,7 +19,7 @@ const json = p => JSON.parse(leggi(p));
 const SIM = {
   '03': ['netpol'], '05': ['partition'], '06': ['hpa'], '07': ['rbac'], '09': ['helm'],
   '21': ['failover', 'ratelimit', 'bilancia', 'tls'], '22': ['count-foreach', 'precedenza'],
-  '23': ['rolling', 'precedenza-ansible'],
+  '23': ['rolling', 'precedenza-ansible'], '25': ['rate', 'alert'],
 };
 const APPROFONDIMENTI = {
   '21': { id: 'approfondimento-tls', file: 'approfondimenti/21-haproxy-cfg-tls.md', quiz: '21-tls', titolo: 'HAProxy fuori da Kubernetes: haproxy.cfg e TLS' },
@@ -30,6 +31,7 @@ const TITOLI_SIM = {
   tls: 'haproxy.cfg del negozio: ACL e modalità TLS',
   'count-foreach': 'count contro for_each: togliere un elemento', precedenza: 'Da dove arriva il valore di una variabile',
   rolling: 'Rolling update a lotti: chi resta nel bilanciatore', 'precedenza-ansible': 'Quale variabile vince in Ansible',
+  rate: 'Counter e rate(): il contatore sale, il tasso no', alert: 'for: 1m — Inactive, Pending, Firing',
 };
 
 function testoPiano(html) {
@@ -65,8 +67,8 @@ export function costruisci() {
   const corso = importa(leggi('content/corso.md'));
   const glossario = json('content/glossario.json');
   const flashcard = json('content/flashcard.json');
-  const lezioni = [...corso.lezioni, caricaCapitolo('22'), caricaCapitolo('23'), caricaProgetto()];
-  const mappa = [...corso.mappa, ...json('content/terraform/mappa.json'), ...json('content/progetto/mappa.json')];
+  const lezioni = [...corso.lezioni, caricaCapitolo('22'), caricaCapitolo('23'), caricaProgetto(), caricaMonitoraggio()];
+  const mappa = [...corso.mappa, ...json('content/terraform/mappa.json'), ...json('content/progetto/mappa.json'), ...json('content/monitoraggio/mappa.json')];
   const quiz = Object.fromEntries(lezioni.map(l => [l.id, json(`content/quiz/quiz-${l.id}.json`)]));
 
   mkdirSync(DIST, { recursive: true });

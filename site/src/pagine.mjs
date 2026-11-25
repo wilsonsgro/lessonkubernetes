@@ -3,9 +3,10 @@ import { esc, slug } from './markdown.mjs';
 
 const RUOLI = { lezione: 'Spiegazione della lezione', manifest: 'File della lezione', passi: 'Comandi passo passo', progetto: 'File del progetto' };
 export const ruolo = r => RUOLI[r] || r;
-const APPROFONDIMENTI = ['21', '22', '23', '24'];
+const APPROFONDIMENTI = ['21', '22', '23', '24', '25'];
 const approf = l => APPROFONDIMENTI.includes(l.id);
 const AVVISO_LAB = {
+  '25': 'i comandi sono esempi da lanciare a mano sul cluster di prova (contesto <code>lab</code>, non <code>lab-haproxy</code>): la stack va nel namespace <code>monitoring</code>, l\'app dimostrativa in <code>lab-metrics</code>. Nessuno è stato eseguito sul cluster del laboratorio: output e numeri della lezione sono illustrativi. Grafana e Prometheus si aprono solo con <code>port-forward</code>, niente Ingress.',
   '24': 'sono i comandi di un <b>progetto vero</b>, non di un esercizio: si lanciano solo a mano, sul PC del laboratorio, in <code>~/biodistretto/kubernetes</code>. <code>./deploy.sh</code> crea un cluster minikube a 2 nodi e un container HAProxy sulle porte 80 e 443 dell\'host; <code>./deploy.sh distruggi</code> toglie tutto, dati compresi.',
   '22': 'i comandi sono esempi da lanciare a mano: Terraform usa il <b>Docker locale</b> come se fosse un cloud, nessun cluster. <code>00-installa.sh</code> chiede sudo; ogni script lavora in <code>~/kubernetesprj/lavoro/iac/NN</code>.',
   '23': 'i comandi sono esempi da lanciare a mano. Prima serve la parte 00 della <a href="/lezioni/22.html">lezione 22</a> (ansible-core con pipx e le collection). I «server» sono container <b>privilegiati</b> con systemd (<code>web1</code>, <code>web2</code>, <code>db1</code>), solo per il laboratorio: le parti 06–09 lavorano in <code>~/kubernetesprj/lavoro/ansible</code> e li tolgono alla fine della 09, la 10 crea e distrugge i suoi in <code>~/kubernetesprj/lavoro/iac/10</code>. La parte 09 lascia <code>~/.vault_pass</code> nella tua home.',
@@ -21,7 +22,7 @@ export function testata() {
     <input id="cerca-campo" type="search" autocomplete="off" placeholder="Cerca: EndpointSlice, stick-table, checksum…  ( / )" aria-controls="cerca-risultati" aria-expanded="false" aria-autocomplete="list">
     <ul id="cerca-risultati" class="cerca-risultati" role="listbox" aria-label="Risultati della ricerca" hidden></ul>
   </div>
-  <a class="progresso-mini" href="/#percorso-corso" aria-label="Progresso del corso"><span class="barra" aria-hidden="true"><i data-progresso-barra></i></span><span data-progresso-testo>0/13</span></a>
+  <a class="progresso-mini" href="/#percorso-corso" aria-label="Progresso del corso"><span class="barra" aria-hidden="true"><i data-progresso-barra></i></span><span data-progresso-testo>0/14</span></a>
   <nav class="testata-link" aria-label="Strumenti"><a href="/glossario.html">Glossario</a><a href="/flashcard.html">Flashcard</a></nav>
   <button type="button" class="tema" aria-label="Cambia tema chiaro/scuro" title="Tema chiaro/scuro">◐</button>
 </header>`;
@@ -169,10 +170,10 @@ export function paginaHome({ lezioni, mappa }) {
   const corpo = `${testata()}
 <main id="contenuto" class="home" tabindex="-1">
   <section class="home-testa">
-    <p class="occhiello">Lezioni 01–09 · approfondimenti 21–24</p>
+    <p class="occhiello">Lezioni 01–09 · approfondimenti 21–25</p>
     <h1>Corso Kubernetes</h1>
-    <p>Dall'architettura del cluster a Helm, poi HAProxy come Ingress controller. Ogni lezione ha tre livelli di lettura: la spiegazione, i file originali completi e il laboratorio con le simulazioni.</p>
-    <div class="home-progresso"><div class="barra grande" aria-hidden="true"><i data-progresso-barra></i></div><p><span data-progresso-testo>0/13</span> lezioni completate · <a data-riprendi href="/lezioni/01.html">Inizia dalla 01</a></p></div>
+    <p>Dall'architettura del cluster a Helm, poi HAProxy come Ingress controller, Terraform, Ansible, un progetto reale e il monitoraggio con Prometheus e Grafana. Ogni lezione ha tre livelli di lettura: la spiegazione, i file originali completi e il laboratorio con le simulazioni.</p>
+    <div class="home-progresso"><div class="barra grande" aria-hidden="true"><i data-progresso-barra></i></div><p><span data-progresso-testo>0/14</span> lezioni completate · <a data-riprendi href="/lezioni/01.html">Inizia dalla 01</a></p></div>
     <p class="nota-fonti">Le misure riportate nelle lezioni sono quelle del laboratorio di origine. Il sito non esegue comandi e funziona senza cluster.</p>
   </section>
   <section aria-labelledby="percorso-corso-tit" id="percorso-corso">
@@ -192,7 +193,7 @@ export function paginaHome({ lezioni, mappa }) {
     <a href="/preferiti.html"><b>Preferiti e note</b><small>quello che hai segnato in questo browser</small></a>
   </section>
 </main>`;
-  return pagina({ titolo: 'Corso Kubernetes — lezioni 01–09, 21 HAProxy e 22 Terraform', descrizione: 'Corso Kubernetes in italiano: lezioni, sorgenti, laboratori e simulazioni.', corpo, classe: 'p-home' });
+  return pagina({ titolo: 'Corso Kubernetes — lezioni 01–09 e approfondimenti 21–25', descrizione: 'Corso Kubernetes in italiano: lezioni, sorgenti, laboratori e simulazioni.', corpo, classe: 'p-home' });
 }
 
 export function paginaGlossario({ glossario, lezioni }) {

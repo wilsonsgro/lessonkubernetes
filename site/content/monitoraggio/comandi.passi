@@ -1,0 +1,88 @@
+titolo "Prima di iniziare: il cluster giusto"
+nota "Contesto lab (due nodi da 4 GiB), non lab-haproxy (1 GiB per nodo). La stack va nel namespace monitoring, l'app dimostrativa in lab-metrics. Nessun comando è stato eseguito sul cluster del laboratorio: gli output della lezione sono illustrativi."
+passo "Contesto, nodi Ready e risorse libere: la stack chiede CPU e memoria" \
+  'kubectl config current-context
+kubectl get nodes
+kubectl top nodes'
+passo "Solo se il cluster è spento; non accendere insieme più cluster pesanti" \
+  'minikube -p lab start'
+
+titolo "kube-prometheus-stack con Helm (sezione 5)"
+passo "Il repository del Chart e le versioni disponibili: scegline una compatibile con il cluster e fissala con --version" \
+  'helm repo add prometheus-community \
+  https://prometheus-community.github.io/helm-charts
+helm repo update prometheus-community
+helm search repo prometheus-community/kube-prometheus-stack --versions'
+nota "Salva values-monitoring.yaml (vista Sorgenti originali) nella cartella da cui lanci helm: retention 6h e serviceMonitorSelector release=monitoring."
+passo "Installa o aggiorna la Release monitoring nel namespace monitoring" \
+  'helm upgrade --install monitoring \
+  prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  --values values-monitoring.yaml \
+  --wait \
+  --timeout 10m'
+passo "Pod, Service, l'oggetto Prometheus e i ServiceMonitor creati dal Chart; un Pending si indaga come nella lezione 08" \
+  'kubectl -n monitoring get pods
+kubectl -n monitoring get svc
+kubectl -n monitoring get prometheus
+kubectl -n monitoring get servicemonitors'
+
+titolo "Le interfacce (sezione 6)"
+passo "Grafana su http://localhost:3000; resta in primo piano, serve un terminale suo" \
+  'kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80'
+passo "La password di admin di Grafana, solo in un terminale sicuro: non va pubblicata né messa in un repository" \
+  "kubectl -n monitoring get secret monitoring-grafana \\
+  -o jsonpath='{.data.admin-password}' | base64 -d
+echo"
+passo "Prometheus su http://localhost:9090 (query e pagina Targets), in un altro terminale" \
+  'kubectl -n monitoring port-forward \
+  svc/monitoring-kube-prometheus-prometheus 9090:9090'
+
+titolo "L'app con /metrics e il ServiceMonitor (sezione 8)"
+nota "Le CRD dell'Operator arrivano con la stack: demo-metrics.yaml fallisce se la stack non è ancora installata."
+passo "Namespace, ConfigMap con il codice, Deployment, Service e ServiceMonitor" \
+  'kubectl apply -f demo-metrics.yaml
+kubectl -n lab-metrics rollout status deploy/demo-metrics
+kubectl -n lab-metrics get pods,svc,servicemonitors'
+passo "L'app sulla porta 8000 del PC, in un terminale suo" \
+  'kubectl -n lab-metrics port-forward svc/demo-metrics 8000:8000'
+passo "Cento richieste a /work, poi le metriche: demo_requests_total deve valere 100" \
+  'for i in $(seq 100); do
+  curl -fsS http://localhost:8000/work >/dev/null
+done
+curl -s http://localhost:8000/metrics'
+passo "Traffico lento per un rate() leggibile: servono almeno due scrape mentre arrivano le richieste" \
+  'for i in $(seq 120); do
+  curl -fsS http://localhost:8000/work >/dev/null
+  sleep 0.2
+done'
+
+titolo "L'alert (sezione 10)"
+passo "La PrometheusRule e l'incidente provocato: zero repliche" \
+  'kubectl apply -f demo-alert.yaml
+kubectl -n lab-metrics scale deploy/demo-metrics --replicas=0'
+nota "Nella UI di Prometheus, pagina Alerts: Inactive, poi Pending, poi Firing dopo for: 1m. Firing non vuol dire messaggio inviato: serve un receiver in Alertmanager."
+passo "Ripristino della replica" \
+  'kubectl -n lab-metrics scale deploy/demo-metrics --replicas=1'
+
+titolo "Se qualcosa non torna (sezione 11)"
+passo "Stato → selettori → endpoint: dove si spezza la catena Prometheus → ServiceMonitor → Service → Pod" \
+  'kubectl -n monitoring get pods
+kubectl -n lab-metrics get pods
+kubectl -n lab-metrics get svc demo-metrics --show-labels
+kubectl -n lab-metrics get endpointslices \
+  -l kubernetes.io/service-name=demo-metrics
+kubectl -n lab-metrics describe servicemonitor demo-metrics
+kubectl -n monitoring get prometheus -o yaml'
+
+titolo "Pulizia"
+nota "Aggiunta del sito, non è nella lezione: toglie l'app, la regola e la stack. helm uninstall non cancella le CRD dell'Operator (monitoring.coreos.com): restano finché non le togli a mano."
+passo "Via l'alert e l'app dimostrativa, namespace lab-metrics compreso" \
+  'kubectl delete -f demo-alert.yaml
+kubectl delete -f demo-metrics.yaml'
+passo "Via la Release e il suo namespace" \
+  'helm uninstall monitoring -n monitoring
+kubectl delete namespace monitoring'
+passo "Le CRD rimaste dopo la disinstallazione" \
+  'kubectl get crd | grep monitoring.coreos.com'

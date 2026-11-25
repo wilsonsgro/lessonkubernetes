@@ -393,5 +393,35 @@
   "lezione": "24",
   "fronte": "Biodistretto dopo un riavvio del PC?",
   "retro": "Non basta rialzare i container dei nodi: serve minikube start (kubelet, cri-docker). Il ruolo cluster mette un @reboot nel crontab."
+ },
+ {
+  "lezione": "25",
+  "fronte": "Prometheus, Grafana, Alertmanager: chi fa cosa?",
+  "retro": "Prometheus fa scrape, conserva le serie e valuta le regole; Grafana disegna le dashboard; Alertmanager raggruppa, silenzia e instrada gli alert ai receiver."
+ },
+ {
+  "lezione": "25",
+  "fronte": "metrics-server o Prometheus per l'HPA standard?",
+  "retro": "metrics-server: l'HPA su CPU/RAM usa la Resource Metrics API. Prometheus non la sostituisce da solo; per metriche applicative serve un adapter o KEDA."
+ },
+ {
+  "lezione": "25",
+  "fronte": "Il ServiceMonitor c'è ma il target non compare: dove guardi?",
+  "retro": "Sui tre selettori: serviceMonitorSelector di Prometheus (release=monitoring), selector del ServiceMonitor sulle label del Service, nome della porta in endpoints[].port; poi gli EndpointSlice del Service."
+ },
+ {
+  "lezione": "25",
+  "fronte": "Counter contro Gauge?",
+  "retro": "Il Counter sale sempre e riparte da zero al riavvio: si legge con rate(). La Gauge sale e scende: si legge così com'è."
+ },
+ {
+  "lezione": "25",
+  "fronte": "Inactive, Pending, Firing con for: 1m?",
+  "retro": "Condizione vera: Pending. Vera di continuo per un minuto: Firing. Torna falsa prima: di nuovo Inactive. Firing non vuol dire messaggio inviato."
+ },
+ {
+  "lezione": "25",
+  "fronte": "Perché non metti user_id come label?",
+  "retro": "Ogni valore nuovo crea una serie temporale: la cardinalità esplode, e con lei memoria e disco di Prometheus."
  }
 ]

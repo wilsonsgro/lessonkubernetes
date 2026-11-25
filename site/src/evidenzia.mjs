@@ -36,6 +36,7 @@ hljs.registerLanguage('nginx', nginx);
 hljs.registerLanguage('dockerfile', dockerfile);
 hljs.registerLanguage('haproxy', haproxy);
 hljs.registerLanguage('hcl', hcl);
+hljs.registerLanguage('promql', promql);
 
 const ALIAS = { sh: 'bash', shell: 'bash', console: 'bash', zsh: 'bash', yml: 'yaml', md: 'markdown', text: 'plaintext', txt: 'plaintext', '': 'plaintext', cfg: 'haproxy', tf: 'hcl', terraform: 'hcl', tftest: 'hcl' };
 
@@ -78,6 +79,21 @@ function hcl(h) {
       { className: 'string', begin: /"/, end: /"/, contains: [h.BACKSLASH_ESCAPE, interpolazione] },
       { className: 'number', begin: /\b\d+(\.\d+)?\b/ },
       { className: 'attr', begin: /\b[a-z_][a-z0-9_-]*(?=\s*=[^=>])/ },
+    ],
+  };
+}
+
+function promql(h) {
+  return {
+    name: 'PromQL',
+    contains: [
+      h.HASH_COMMENT_MODE,
+      { className: 'built_in', begin: /\b(rate|irate|increase|delta|sum|avg|min|max|count|topk|bottomk|histogram_quantile|absent|abs|round|clamp_min|clamp_max)(?=\s*\()/ },
+      { className: 'keyword', begin: /\b(by|without|on|ignoring|group_left|group_right|and|or|unless|offset|bool)\b/ },
+      { className: 'string', begin: /"/, end: /"/, contains: [h.BACKSLASH_ESCAPE] },
+      { className: 'number', begin: /\[\d+[smhdwy]\]/ },
+      { className: 'number', begin: /\b\d+(\.\d+)?\b/ },
+      { className: 'attr', begin: /\b[a-zA-Z_][a-zA-Z0-9_]*(?=\s*(=~|!~|!=|=)\s*")/ },
     ],
   };
 }

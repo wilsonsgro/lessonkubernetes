@@ -7,14 +7,14 @@ import { join } from 'node:path';
 const DIST = mkdtempSync(join(tmpdir(), 'k8s-site-test-'));
 process.env.DIST = DIST;
 const { costruisci } = await import('../src/build.mjs');
-const ORDINE = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '21', '22', '23', '24'];
+const ORDINE = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '21', '22', '23', '24', '25'];
 const pag = p => readFileSync(join(DIST, p), 'utf8');
 const unesc = s => s.replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
 before(() => costruisci());
 process.on('exit', () => rmSync(DIST, { recursive: true, force: true }));
 
-test('la home elenca le lezioni nell\'ordine 01…09, poi gli approfondimenti 21, 22, 23 e 24', () => {
+test('la home elenca le lezioni nell\'ordine 01…09, poi gli approfondimenti 21, 22, 23, 24 e 25', () => {
   const ids = [...pag('index.html').matchAll(/data-tappa="(\d\d)"/g)].map(m => m[1]);
   assert.deepEqual(ids, ORDINE);
 });
@@ -27,7 +27,7 @@ test('ogni lezione: tre viste, almeno cinque domande, tre sorgenti integrali sca
     assert.ok(quiz.length >= 5, id);
     for (const q of quiz) assert.ok(q.corretta >= 0 && q.corretta < q.opzioni.length, q.id);
     const scarica = [...h.matchAll(/class="scarica" href="([^"]+)"/g)].map(m => m[1]);
-    assert.equal(scarica.length, { '22': 17, '23': 15, '24': 37 }[id] ?? 3, id);
+    assert.equal(scarica.length, { '22': 17, '23': 15, '24': 37, '25': 4 }[id] ?? 3, id);
     for (const s of scarica) assert.ok(existsSync(join(DIST, s)), s);
   }
 });
@@ -178,4 +178,44 @@ test('lezione 24 progetto reale: dopo la 23, README come lezione, 37 file, coman
   assert.equal(JSON.parse(pag('dati/corso.json')).mappa.filter(m => m.verso.includes('24')).length, 4);
   assert.ok(pag('index.html').includes('data-tappa="24"'));
   assert.ok(pag('lezioni/23.html').includes('href="/lezioni/24.html"'));
+});
+
+test('lezione 25 Prometheus e Grafana: dopo la 24, testo integrale, tre YAML, laboratorio con pulizia, simulazioni, quiz', () => {
+  const h = pag('lezioni/25.html');
+  assert.match(h, /class="occhiello">Lezione 25 · Approfondimento/);
+  const nav = h.match(/<nav class="percorso"[\s\S]*?<\/nav>/)[0];
+  assert.match(nav.split('percorso-sep')[1], /data-id="24"[\s\S]*data-id="25"/);
+  const home = pag('index.html');
+  assert.ok(home.indexOf('data-tappa="24"') < home.indexOf('data-tappa="25"'));
+  assert.ok(home.split('class="approf"')[1].includes('data-tappa="25"'), '25 fra gli approfondimenti');
+  assert.ok(pag('lezioni/24.html').includes('href="/lezioni/25.html"'));
+  const md = readFileSync(new URL('../content/monitoraggio/lezione-25.md', import.meta.url), 'utf8');
+  const blocchi = [...md.matchAll(/^```[a-z]*\n([\s\S]*?)^```$/gm)].map(m => m[1]);
+  assert.ok(blocchi.length >= 40, `blocchi ${blocchi.length}`);
+  const spieg = h.slice(h.indexOf('id="vista-spiegazione"'), h.indexOf('id="vista-sorgenti"'));
+  const testo = unesc(spieg.replace(/<[^>]+>/g, ''));
+  for (const b of blocchi) for (const r of b.split('\n').filter(Boolean)) assert.ok(testo.includes(r), `riga persa: ${r}`);
+  assert.ok(!/Codex|OpenClaw|Prompt breve/.test(h), 'la specifica per l\'agente resta fuori');
+  assert.match(spieg, /data-lingua="promql"/);
+  assert.match(spieg, /hljs-built_in">rate</);
+  const scarica = [...h.matchAll(/class="scarica" href="([^"]+)"/g)].map(m => m[1]);
+  assert.deepEqual(scarica, ['/fonti/monitoraggio/lezione-25.md', '/fonti/monitoraggio/values-monitoring.yaml', '/fonti/monitoraggio/demo-metrics.yaml', '/fonti/monitoraggio/demo-alert.yaml']);
+  assert.equal(pag('fonti/monitoraggio/demo-metrics.yaml'), readFileSync(new URL('../content/monitoraggio/file/demo-metrics.yaml', import.meta.url), 'utf8'));
+  const lab = h.slice(h.indexOf('id="vista-laboratorio"'), h.indexOf('class="verifica"'));
+  assert.equal((lab.match(/<li class="passo">/g) || []).length, 18);
+  for (const s of ['helm upgrade --install monitoring', 'kubectl apply -f demo-metrics.yaml', '--replicas=0', '--replicas=1', 'helm uninstall monitoring']) assert.ok(unesc(lab).includes(s), s);
+  const pericoli = (lab.match(/class="riga pericolo" title="[^"]*"/g) || []).map(x => x.match(/Attenzione: ([^"]*)/)[1]);
+  assert.deepEqual(pericoli, ['delete', 'delete', 'helm uninstall', 'delete']);
+  for (const s of ['rate', 'alert']) assert.ok(lab.includes(`data-sim="${s}"`), s);
+  const q = JSON.parse(h.match(/<script type="application\/json" id="dati-quiz">([\s\S]*?)<\/script>/)[1]);
+  assert.equal(q.length, 8);
+  assert.match(h, /id="vista-spiegazione"[\s\S]*class="frase"|class="frase"[\s\S]*id="vista-spiegazione"/);
+  const g = JSON.parse(pag('dati/glossario.json'));
+  for (const t of ['Prometheus', 'Grafana', 'PromQL', 'ServiceMonitor', 'PrometheusRule', 'Alertmanager', 'kube-state-metrics', 'node-exporter', 'Counter', 'Gauge', 'rate()', 'cardinalità']) assert.ok(g.find(x => x.termine === t)?.lezioni.includes('25'), t);
+  for (const t of ['metrics-server', 'HPA', 'Chart', 'HAProxy', 'stick-table']) assert.ok(g.find(x => x.termine === t).lezioni.includes('25'), t);
+  assert.deepEqual(JSON.parse(pag('dati/corso.json')).mappa.filter(m => m.verso.includes('25')).map(m => m.da).sort(), ['01', '05', '06', '08', '09', '21']);
+  const idx = JSON.parse(pag('dati/cerca.json'));
+  assert.ok(idx.some(v => v.l === '25' && v.u.includes('vista=spiegazione') && /ServiceMonitor/.test(v.x)));
+  assert.ok(idx.some(v => v.l === '25' && v.u.includes('vista=sorgenti') && /PrometheusRule/.test(v.x)));
+  assert.match(home, /0\/14/);
 });

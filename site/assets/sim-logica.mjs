@@ -215,3 +215,36 @@ export function rolling({ host, serial, maxFail, rotti = [], nuova = '2.0', vecc
   });
   return { lotti, fermato, bilanciatore: ordinati.filter(h => lb.has(h)), versioni, rientrati: [...rientrati] };
 }
+
+export function serieContatore({ rps1, rps2, cambio, riavvio, n = 13, passo = 15 }) {
+  const v = [0];
+  for (let i = 1; i < n; i++) {
+    const nuove = (i <= cambio ? rps1 : rps2) * passo;
+    v.push(i === riavvio ? nuove : v[i - 1] + nuove);
+  }
+  return v;
+}
+
+export function rateContatore({ campioni, passo, finestra }) {
+  return campioni.map((valore, i) => {
+    const primo = Math.max(0, i - Math.floor(finestra / passo) + 1);
+    const dentro = campioni.slice(primo, i + 1);
+    if (dentro.length < 2) return { t: i * passo, valore, aumento: null, rate: null, differenza: null };
+    let aumento = 0;
+    for (let k = 1; k < dentro.length; k++) aumento += dentro[k] >= dentro[k - 1] ? dentro[k] - dentro[k - 1] : dentro[k];
+    const durata = (dentro.length - 1) * passo;
+    return { t: i * passo, valore, aumento, rate: Math.round(aumento / durata * 1000) / 1000, differenza: dentro.at(-1) - dentro[0] };
+  });
+}
+
+export function statiAlert({ inizio, fine, intervallo, per, durata }) {
+  const out = [];
+  let attivoDa = null;
+  for (let t = 0; t <= durata; t += intervallo) {
+    const vera = t >= inizio && t < fine;
+    if (!vera) attivoDa = null;
+    else if (attivoDa === null) attivoDa = t;
+    out.push({ t, vera, stato: !vera ? 'inactive' : t - attivoDa >= per ? 'firing' : 'pending' });
+  }
+  return out;
+}

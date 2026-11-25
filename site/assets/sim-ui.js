@@ -281,6 +281,48 @@ const SIM = {
     };
     box.addEventListener('input', calcola); calcola();
   },
+
+  rate(box) {
+    box.insertAdjacentHTML('beforeend', `<p>Il <code>demo_requests_total</code> della sezione 8, letto ogni 15 s per 3 minuti. Il traffico cambia a metà; il processo può ripartire e azzerare il Counter.</p>
+      <div class="campi">
+        <label>Richieste/s, primo tratto<input type="number" name="rps1" value="5" min="0" max="100"></label>
+        <label>Richieste/s, secondo tratto<input type="number" name="rps2" value="1" min="0" max="100"></label>
+        <label>Finestra di rate()<select name="finestra"><option value="60" selected>[1m]</option><option value="120">[2m]</option></select></label>
+        <label>Riavvio del Pod<select name="riavvio"><option value="0">nessuno</option><option value="9">a 2:15</option></select></label>
+      </div><div class="esito" aria-live="polite"></div>
+      <p class="nota-sim"><span class="etichetta">dati simulati</span> Il rate() vero estrapola ai bordi della finestra; qui è la somma degli aumenti divisa per il tempo fra il primo e l'ultimo campione, con il ritorno a zero contato come fa Prometheus.</p>`);
+    const mmss = t => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    const calcola = () => {
+      const finestra = Number(val(box, 'finestra'));
+      const v = S.serieContatore({ rps1: num(box, 'rps1'), rps2: num(box, 'rps2'), cambio: 6, riavvio: Number(val(box, 'riavvio')), n: 13, passo: 15 });
+      const r = S.rateContatore({ campioni: v, passo: 15, finestra });
+      const righe = r.map(x => `<tr><th scope="row">${mmss(x.t)}</th><td>${x.valore}</td><td>${x.rate === null ? '—' : x.rate}</td><td>${x.differenza === null ? '—' : x.differenza}</td></tr>`).join('');
+      box.querySelector('.esito').innerHTML = `<div class="tabella" tabindex="0"><table><caption class="vh">Campioni del Counter e rate() per istante</caption><thead><tr><th scope="col">Istante</th><th scope="col">demo_requests_total</th><th scope="col">rate(…[${finestra / 60}m]) /s</th><th scope="col">ultimo − primo nella finestra</th></tr></thead><tbody>${righe}</tbody></table></div>
+        <p>Il Counter non scende mai, salvo il riavvio; il <b class="verdetto">rate()</b> segue il traffico del momento.${Number(val(box, 'riavvio')) ? ' Dopo il riavvio la differenza ingenua va sotto zero, il rate() no.' : ''}</p>`;
+    };
+    box.addEventListener('input', calcola); calcola();
+  },
+
+  alert(box) {
+    box.insertAdjacentHTML('beforeend', `<p>La regola <code>DemoMetricsNonDisponibile</code> della sezione 10: <code>replicas_available &lt; 1</code> con <code>for</code>. Scegli quando il Deployment va a zero repliche e quando torna.</p>
+      <div class="campi">
+        <label>A zero repliche dal secondo<input type="number" name="inizio" value="30" min="0" max="300" step="15"></label>
+        <label>Di nuovo su al secondo<input type="number" name="fine" value="180" min="0" max="300" step="15"></label>
+        <label>Intervallo di valutazione<select name="intervallo"><option value="15">15 s</option><option value="30" selected>30 s</option><option value="60">60 s</option></select></label>
+        <label>for<select name="per"><option value="0">0 (subito)</option><option value="60" selected>1m</option><option value="120">2m</option></select></label>
+      </div><div class="esito" aria-live="polite"></div>
+      <p class="nota-sim"><span class="etichetta">dati simulati</span> Qui la condizione è vera nell'istante in cui il Deployment è a zero; nel cluster arriva in ritardo di uno scrape di kube-state-metrics. Firing non vuol dire messaggio inviato: serve un receiver in Alertmanager.</p>`);
+    const NOME = { inactive: 'Inactive', pending: 'Pending', firing: 'Firing' };
+    const calcola = () => {
+      const p = { inizio: num(box, 'inizio'), fine: num(box, 'fine'), intervallo: Number(val(box, 'intervallo')), per: Number(val(box, 'per')), durata: 300 };
+      if (!(p.fine > p.inizio)) { box.querySelector('.esito').innerHTML = 'Il ritorno deve venire dopo l\'inizio.'; return; }
+      const s = S.statiAlert(p);
+      const primo = s.find(x => x.stato === 'firing');
+      box.querySelector('.esito').innerHTML = `<ol class="passi-alert">${s.map(x => `<li><code>${x.t}s</code> condizione ${x.vera ? 'vera' : 'falsa'} → <b>${NOME[x.stato]}</b></li>`).join('')}</ol>
+        <p>${primo ? `Firing alla valutazione di <b class="verdetto">${primo.t}s</b>: ${primo.t - p.inizio}s dopo l'inizio dell'incidente.` : '<b class="verdetto">Mai Firing</b>: la condizione non è rimasta vera abbastanza a lungo per <code>for</code>.'}</p>`;
+    };
+    box.addEventListener('input', calcola); calcola();
+  },
 };
 
 export function avviaSimulazioni() {
