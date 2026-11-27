@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════
 # 21. ARCHITETTURA CON HAPROXY COME INGRESS CONTROLLER
-# Versione: Kubernetes 1.34 · minikube 1.37 · chart haproxytech/kubernetes-ingress 1.57.1 (HAProxy 3.4) · Calico
+# Versione: Kubernetes 1.34 · minikube 1.37 · chart haproxytech/kubernetes-ingress 1.57.1 (HAProxy 3.4) · Calico · Headlamp 0.46.0
 # Livello: 1 — Workload
 # ═══════════════════════════════════════════════════════════════════════════
 # Un Ingress è solo una REGOLA (host, path → Service). La esegue un
@@ -40,6 +40,18 @@
 #   for i in $(seq 8); do curl -s -o /dev/null -w '%{http_code} ' \
 #       -H 'Host: limitato.lab.local' http://$IP:30080/; done   # 200… poi 429
 #   statistiche: http://$IP:30024/stats   (dal Mac: tunnel ssh, vedi .md)
+#
+# HEADLAMP (lo installa lo script con Helm, NON questo file)
+#   Una UI web del cluster, servita dallo stesso HAProxy: un Ingress di
+#   classe haproxy su headlamp.lab.local → Service headlamp → Pod.
+#   Il pod di Headlamp non ha permessi (clusterRoleBinding.create=false):
+#   ogni chiamata all'apiserver usa il token incollato nel login. Qui il
+#   token è di headlamp-lettore, ClusterRole "view": vede Pod, Service,
+#   Ingress, EndpointSlice; non i Secret (403).
+#   Fuori da questo file perché la 22 lo applica tutto: Headlamp non
+#   deve comparire anche in lab-monitoring.
+#   curl -s -o /dev/null -w '%{http_code}' \
+#       -H 'Host: headlamp.lab.local' http://$IP:30080/          # → 200
 #
 # ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
 #   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
@@ -221,6 +233,12 @@ spec:
 # D: roundrobin o leastconn?
 # R: roundrobin per richieste brevi e simili; leastconn per connessioni
 #    lunghe o di durata diversa (websocket, upload, query lente).
+#
+# D: Headlamp (o Dashboard, Lens): dove stanno i permessi?
+# R: Nel token con cui si entra, non nel pod della UI. Il chart di
+#    default lega il pod a cluster-admin: si spegne con
+#    clusterRoleBinding.create=false e si dà a ogni utente un token a
+#    tempo (kubectl create token --duration) con il ruolo minimo.
 
 # ══════════════════════════════════════════════════════════════════════════
 # RIEPILOGO
@@ -230,4 +248,5 @@ spec:
 # • Annotazioni: sul Service il backend, sull'Ingress il frontend
 # • Rate limit per replica, non globale
 # • 5 nodi da 1 GiB: --force, request piccole, niente controller sul control plane
+# • Headlamp dietro HAProxy: pod senza permessi, token "view" a tempo
 # ══════════════════════════════════════════════════════════════════════════

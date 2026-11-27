@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Lezione 21 — cluster minikube "lab-haproxy" (5 nodi da 1 GiB, Calico) con HAProxy come Ingress controller al posto di ingress-nginx.
+# Lezione 21 — cluster minikube "lab-haproxy" (5 nodi da 1 GiB, Calico) con HAProxy come Ingress controller al posto di ingress-nginx, e Headlamp servito da HAProxy per vedere il cluster.
 source "$(dirname "$0")/../lib/passo.sh"
 titolo "21. Architettura con HAProxy come Ingress controller"
 F="$LEZIONI/kubernetes/21-architettura-e-haproxy.yaml"
 CHART_VER=1.57.1
+HL_VER=0.46.0
 
 passo "Versioni dei client: kubectl, minikube, helm (HAProxy si installa con Helm)" \
   'kubectl version --client; minikube version --short; helm version --short'
@@ -67,6 +68,47 @@ passo "Senza header Host nessuna regola combacia: 404 di HAProxy (il backend di 
   "curl -s -o /dev/null -w '%{http_code}\n' http://\$(minikube -p lab-haproxy ip):30080/"
 passo "La config che il controller ha SCRITTO da sé: un backend per Service, una riga server per IP di Pod (non il ClusterIP)" \
   'kubectl -n haproxy-controller exec deploy/haproxy-kubernetes-ingress -- sed -n "/^backend lab-haproxy_svc_blu/,/^\$/p;/^backend lab-haproxy_svc_verde/,/^\$/p" /etc/haproxy/haproxy.cfg; kubectl -n lab-haproxy get endpointslices'
+passo "Headlamp, la UI web del cluster: repo Helm di kubernetes-sigs e versione del chart" \
+  "helm repo add headlamp https://kubernetes-sigs.github.io/headlamp/ >/dev/null 2>&1; helm repo update headlamp >/dev/null; helm search repo headlamp/headlamp --version $HL_VER"
+passo "Trappola: di default il chart lega il ServiceAccount DEL POD a cluster-admin. Chi entra nel pod ha il cluster" \
+  "helm show values headlamp/headlamp --version $HL_VER | sed -n '/^clusterRoleBinding:/,/^\$/p'"
+passo "Installa Headlamp: pod senza permessi, request piccole, fuori dal control plane, e un Ingress di classe haproxy su headlamp.lab.local" \
+  "helm upgrade --install headlamp headlamp/headlamp --version $HL_VER -n headlamp --create-namespace --wait --timeout 5m -f - <<'VALORI'
+clusterRoleBinding:
+  create: false
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 128Mi }
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - { key: minikube.k8s.io/primary, operator: NotIn, values: ['true'] }
+ingress:
+  enabled: true
+  ingressClassName: haproxy
+  hosts:
+    - host: headlamp.lab.local
+      paths:
+        - { path: /, type: Prefix }
+VALORI
+kubectl -n headlamp get pods -o wide; kubectl -n headlamp get ingress"
+passo "Il ServiceAccount del pod non può niente: i permessi stanno nel token del login. Utente headlamp-lettore con il ClusterRole view" \
+  "kubectl auth can-i list pods -A --as=system:serviceaccount:headlamp:headlamp; kubectl -n headlamp create serviceaccount headlamp-lettore --dry-run=client -o yaml | kubectl apply -f - && kubectl create clusterrolebinding headlamp-lettore --clusterrole=view --serviceaccount=headlamp:headlamp-lettore --dry-run=client -o yaml | kubectl apply -f -"
+passo "Un Ingress nuovo è un cambio di struttura: HAProxy scrive un backend in più e si ricarica. Aspetto 200 su headlamp.lab.local" \
+  "IP=\$(minikube -p lab-haproxy ip); for i in \$(seq 60); do c=\$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: headlamp.lab.local' http://\$IP:30080/); [ \"\$c\" = 200 ] && break; sleep 1; done; echo \"headlamp.lab.local → \$c dopo \$i tentativi\"; kubectl -n haproxy-controller exec deploy/haproxy-kubernetes-ingress -- sed -n '/^backend headlamp_svc_headlamp/,/^\$/p' /etc/haproxy/haproxy.cfg"
+passo "Headlamp gira all'apiserver il token che riceve. Senza token l'apiserver vede system:anonymous (403); col lettore i Pod sì, i Secret no (403)" \
+  "IP=\$(minikube -p lab-haproxy ip); T=\$(kubectl -n headlamp create token headlamp-lettore --duration=10m); U=http://\$IP:30080/clusters/main/api/v1/namespaces/lab-haproxy; H='Host: headlamp.lab.local'
+echo \"senza token → pods:    \$(curl -s -w ' %{http_code}' -H \"\$H\" \$U/pods | grep -oE 'system:anonymous|[0-9]{3}\$' | sort -u | tr '\n' ' ')\"
+echo \"lettore     → pods:    \$(curl -s -o /dev/null -w '%{http_code}' -H \"\$H\" -H \"Authorization: Bearer \$T\" \$U/pods)\"
+echo \"lettore     → secrets: \$(curl -s -o /dev/null -w '%{http_code}' -H \"\$H\" -H \"Authorization: Bearer \$T\" \$U/secrets)\""
+passo "Il token per il browser: scade fra 8 ore e non finisce in nessun Secret" \
+  'kubectl -n headlamp create token headlamp-lettore --duration=8h'
+nota "Dal Mac:  ssh -L 30080:$(minikube -p lab-haproxy ip):30080 wilsonsgro@192.168.1.79" \
+     "         e in /etc/hosts del Mac:  127.0.0.1 headlamp.lab.local" \
+     "Browser:  http://headlamp.lab.local:30080 → incolla il token. Apri Workloads → Pods, namespace lab-haproxy:" \
+     "         nei prossimi passi vedi blu salire a 5 e tornare a 3, e i Pod HAProxy in haproxy-controller."
 passo "Reload contati prima di scalare: colonna reloads del processo master" \
   'kubectl -n haproxy-controller exec deploy/haproxy-kubernetes-ingress -- sh -c "echo show proc | socat stdio /run/haproxy-master.sock | head -2"'
 passo "Scalo blu a 5: il controller aggiunge i server con la Runtime API ('add server'), senza ricaricare" \
@@ -80,8 +122,8 @@ passo "La pagina statistiche di HAProxy in CSV: backend, server, stato. Nel brow
   "curl -s \"http://\$(minikube -p lab-haproxy ip):30024/stats;csv\" | cut -d, -f1,2,18 | grep -E '^(# pxname|lab-haproxy_svc)'"
 passo "Riporto blu a 3: i server in più escono a caldo come sono entrati" \
   'kubectl -n lab-haproxy scale deploy/blu --replicas=3 && sleep 10; kubectl -n haproxy-controller logs deploy/haproxy-kubernetes-ingress --since=30s | grep -iE "delete|del server" | tail -2'
-passo "Pulizia: le app e il namespace lab-haproxy, poi il controller HAProxy" \
-  "kubectl delete -f $F --ignore-not-found; helm uninstall haproxy -n haproxy-controller; kubectl delete namespace haproxy-controller --ignore-not-found"
+passo "Pulizia: Headlamp e il suo utente, le app e il namespace lab-haproxy, poi il controller HAProxy" \
+  "helm uninstall headlamp -n headlamp; kubectl delete clusterrolebinding headlamp-lettore --ignore-not-found; kubectl delete namespace headlamp --ignore-not-found; kubectl delete -f $F --ignore-not-found; helm uninstall haproxy -n haproxy-controller; kubectl delete namespace haproxy-controller --ignore-not-found"
 nota "Spegnere il cluster senza perderlo:  minikube -p lab-haproxy stop" \
      "Cancellarlo del tutto:              minikube -p lab-haproxy delete" \
      "Tornare al cluster delle altre lezioni: kubectl config use-context lab (dopo minikube -p lab start)"

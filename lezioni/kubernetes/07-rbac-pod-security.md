@@ -351,3 +351,32 @@ l'errore arriva al terminale. Il Pod `root` **non viene creato**: non c'è nient
    rolebinding …`), poi ripeti `can-i get secrets` e `can-i get pods -n lab`: cosa cambia e cosa no?
 3. Togli dal Deployment `nginx` il blocco `seccompProfile` e riapplica: che `Warning` stampa kubectl? Il Deployment
    viene accettato? E i Pod nuovi (`kubectl -n lab-sicuro get rs` e `describe rs`)? Rimetti il blocco.
+
+
+## Script create kubeconfig 
+
+```bash
+K=~/lab-sicuro.kubeconfig; rm -f $K
+TOKEN=$(kubectl -n lab-sicuro create token deployer --duration=8h)
+CA=$(kubectl -n lab-sicuro get cm kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' | base64 | tr -d '\n')
+kubectl config --kubeconfig=$K set-cluster lab --server=https://192.168.1.79:9999 --tls-server-name=localhost
+kubectl config --kubeconfig=$K set clusters.lab.certificate-authority-data "$CA"
+kubectl config --kubeconfig=$K set-credentials deployer --token="$TOKEN"
+kubectl config --kubeconfig=$K set-context lab-sicuro --cluster=lab --user=deployer --namespace=lab-sicuro
+kubectl config --kubeconfig=$K use-context lab-sicuro
+chmod 600 $K; unset TOKEN CA
+kubectl --kubeconfig=$K auth whoami
+```
+
+```bash
+K=~/lab-mac.kubeconfig; rm -f $K
+TOKEN=$(kubectl -n accessi get secret wilson-mac-token -o jsonpath='{.data.token}' | base64 -d)
+CA=$(kubectl -n accessi get secret wilson-mac-token -o jsonpath='{.data.ca\.crt}')
+kubectl config --kubeconfig=$K set-cluster lab --server=https://192.168.1.79:9999 --tls-server-name=localhost
+kubectl config --kubeconfig=$K set clusters.lab.certificate-authority-data "$CA"
+kubectl config --kubeconfig=$K set-credentials wilson-mac --token="$TOKEN"
+kubectl config --kubeconfig=$K set-context lab --cluster=lab --user=wilson-mac --namespace=lab
+kubectl config --kubeconfig=$K use-context lab
+chmod 600 $K; unset TOKEN CA
+kubectl --kubeconfig=$K auth whoami
+```
