@@ -110,5 +110,47 @@
   "spiegazione": "-var non si ricorda. Per renderlo stabile si scrive repliche = 3 in terraform.tfvars.",
   "fonte": "terraform/10-terraform-piu-ansible.md — trappole",
   "tipo": "didattica"
+ },
+ {
+  "id": "23-9",
+  "domanda": "Parte 11: rilanci lo stesso playbook completo sul cluster già pronto. Che cosa ti aspetti nel riepilogo?",
+  "opzioni": [
+   "changed=0: minikube start salta perché il cluster è acceso, i task che leggono hanno changed_when: false",
+   "changed uguale alla prima corsa: Helm reinstalla i chart",
+   "failed: il namespace esiste già",
+   "changed=1 per ogni uri"
+  ],
+  "corretta": 0,
+  "spiegazione": "Misurato: ok=46 changed=0 skipped=5. kubernetes.core.helm e k8s confrontano lo stato con quello desiderato e non cambiano niente se coincidono.",
+  "fonte": "lezioni/kubernetes/23-architettura-e-haproxy-ansible.md — 2. Idempotenza",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "23-10",
+  "domanda": "Qualcuno porta blu a 4 repliche con kubectl. Che cosa fa ansible-playbook --tags app --check --diff?",
+  "opzioni": [
+   "Mostra solo Deployment/blu con replicas 4 → 3 e non tocca il cluster",
+   "Riporta blu a 3",
+   "Non vede niente: --check non legge il cluster",
+   "Mostra tutti gli oggetti del manifest come cambiati"
+  ],
+  "corretta": 0,
+  "spiegazione": "--check calcola senza applicare; il diff esce solo applicando il manifest un oggetto per volta, e hidden_fields toglie il rumore (managedFields, status, last-applied-configuration). Poi --tags app senza --check corregge la deriva.",
+  "fonte": "lezioni/kubernetes/23-architettura-e-haproxy-ansible.md — 3. Deriva",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "23-11",
+  "domanda": "Perché il playbook della parte 11 usa module_defaults con context: lab-ansible per i gruppi kubernetes.core.k8s e kubernetes.core.helm?",
+  "opzioni": [
+   "Perché ogni task vada al cluster del laboratorio anche se kubectl punta a un altro contesto",
+   "Per installare la collection kubernetes.core",
+   "Per rendere i task più veloci",
+   "Perché senza non si possono usare i tag"
+  ],
+  "corretta": 0,
+  "spiegazione": "Il contesto corrente di kubectl può essere un altro cluster: fissarlo per gruppo di moduli evita di scrivere context su ogni task e di applicare al cluster sbagliato.",
+  "fonte": "lezioni/kubernetes/23-architettura-e-haproxy-ansible.md — 1. module_defaults",
+  "tipo": "didattica"
  }
 ]

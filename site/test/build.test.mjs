@@ -27,7 +27,7 @@ test('ogni lezione: tre viste, almeno cinque domande, tre sorgenti integrali sca
     assert.ok(quiz.length >= 5, id);
     for (const q of quiz) assert.ok(q.corretta >= 0 && q.corretta < q.opzioni.length, q.id);
     const scarica = [...h.matchAll(/class="scarica" href="([^"]+)"/g)].map(m => m[1]);
-    assert.equal(scarica.length, { '22': 17, '23': 15, '24': 37, '25': 4 }[id] ?? 3, id);
+    assert.equal(scarica.length, { '22': 17, '23': 18, '24': 37, '25': 4 }[id] ?? 3, id);
     for (const s of scarica) assert.ok(existsSync(join(DIST, s)), s);
   }
 });
@@ -63,6 +63,10 @@ test('collegamenti obbligatori: checksum/config → 04, 09; EndpointSlice → 03
 test('lezione 21: distingue replica HAProxy, NodePort, Ingress, Service applicativo e Pod IP', () => {
   const h = pag('lezioni/21.html');
   for (const s of ['HAProxy A', 'HAProxy B', 'controller.service.nodePorts', 'Ingress', 'Pod IP blu', 'Pod IP verde', 'data-sim="failover"', 'data-sim="ratelimit"', 'data-sim="bilancia"']) assert.ok(h.includes(s), s);
+  const lab = h.slice(h.indexOf('id="vista-laboratorio"'));
+  assert.equal((lab.match(/<li class="passo">/g) || []).length, 34);
+  for (const s of ['headlamp.lab.local', 'headlamp-lettore']) assert.ok(lab.includes(s), s);
+  assert.match(h, /system:anonymous/);
 });
 
 test('la ricerca indicizza spiegazioni, sorgenti, quiz e glossario', () => {
@@ -126,13 +130,15 @@ test('lezione 22 Terraform: approfondimento dopo la 21, parti, passi, simulazion
   assert.ok(pag('index.html').includes('data-tappa="22"'));
 });
 
-test('lezione 23 Ansible: approfondimento dopo la 22, parti 06–10, passi, simulazioni, glossario', () => {
+test('lezione 23 Ansible: approfondimento dopo la 22, parti 06–11, passi, simulazioni, glossario', () => {
   const h = pag('lezioni/23.html');
   assert.match(h, /class="occhiello">Lezione 23 · Approfondimento/);
   const nav = h.match(/<nav class="percorso"[\s\S]*?<\/nav>/)[0];
   assert.match(nav.split('percorso-sep')[1], /data-id="21"[\s\S]*data-id="22"[\s\S]*data-id="23"/);
-  for (const n of ['06', '07', '08', '09', '10']) assert.match(h, new RegExp(`id="passi-${n}"`), n);
-  assert.equal((h.match(/<li class="passo">/g) || []).length, 44);
+  for (const n of ['06', '07', '08', '09', '10', '11']) assert.match(h, new RegExp(`id="passi-${n}"`), n);
+  assert.equal((h.match(/<li class="passo">/g) || []).length, 61);
+  assert.match(h, /id="parte-11"[\s\S]*lezioni\/kubernetes\/23-architettura-e-haproxy-ansible\.md/);
+  assert.ok(h.includes('href="/fonti/kubernetes/23-architettura-e-haproxy-ansible.sh"'));
   assert.equal((h.match(/class="passo-cartella"/g) || []).length, 5);
   assert.match(h, /~\/kubernetesprj\/lavoro\/ansible/);
   assert.match(h, /~\/kubernetesprj\/lavoro\/iac\/10/);
@@ -143,6 +149,9 @@ test('lezione 23 Ansible: approfondimento dopo la 22, parti 06–10, passi, simu
   for (const t of ['drain', 'Role', 'Service', 'Deployment', 'Secret']) assert.deepEqual(g.find(x => x.termine === t).tranneLezioni, ['23'], t);
   const idx = JSON.parse(pag('dati/cerca.json'));
   assert.ok(idx.some(v => v.l === '23' && v.u.includes('vista=sorgenti') && /delegate_to/.test(v.x)));
+  assert.ok(idx.some(v => v.l === '23' && v.u.includes('vista=sorgenti') && /kubernetes\.core\.k8s_scale/.test(v.x)));
+  for (const t of ['Headlamp', 'kubernetes.core']) assert.ok(g.find(x => x.termine === t)?.lezioni.includes('23'), t);
+  assert.ok(g.find(x => x.termine === 'Headlamp').lezioni.includes('21'));
   assert.ok(idx.some(v => v.l === '23' && v.t.startsWith('Appunti · ')));
   assert.ok(pag('index.html').includes('data-tappa="23"'));
   assert.ok(pag('lezioni/22.html').includes('href="/lezioni/23.html"'));

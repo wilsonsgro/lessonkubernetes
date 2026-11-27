@@ -212,6 +212,7 @@ const D = {
       T(10, 380, 'NodePort espone HAProxy; gli Ingress decidono l\'instradamento.'),
     ],
     passi: [
+      ['frontend backend', /headlamp|valori helm|cambio di struttura|permessi|token|ui dal mac/i, 'Headlamp è un altro host nello stesso frontend: Ingress nuovo, backend nuovo, reload. I permessi stanno nel token di chi entra.'],
       ['frontend backend algo', /negozio|\btls\b|cifratur|passthrough|struttura del file|\d\. il percorso di una richiesta|che cos.è haproxy|comandi da conoscere|domande d.esame|completo e commentato|reverse proxy, load balancing|tre modalità/i, 'Approfondimento: fuori da Kubernetes frontend, ACL e backend si scrivono a mano in haproxy.cfg; qui il controller li genera dagli Ingress.'],
       ['client nodeport frontend backend pod', /percorso|obiettivo|reverse|in una frase|architettura/i, 'Dal client al Pod IP: ogni salto è un oggetto diverso.'],
       ['nodeport espone', /nodeport|porte|ingresso/i, 'controller.service.nodePorts espone HAProxy; non sono le porte delle app.'],
@@ -285,6 +286,7 @@ D['23'] = {
     T(10, 384, 'Terraform crea i nodi, Ansible li configura.'),
   ],
   passi: [
+    ['control modulo', /dalla 21 alla 23|module_defaults|deriva|kubernetes\.core|headlamp|lab-ansible|la 21 con ansible|seconda corsa|check_mode|uri, until/i, 'Parte 11: il playbook gira su localhost e i moduli kubernetes.core parlano con l\'API del cluster lab-ansible; nessun nodo da configurare via connessione.'],
     ['vault', /vault|segret|no_log/i, 'Vault cifra il segreto in git; no_log lo tiene fuori dall\'output e dai log.'],
     ['lb rolling nodi', /rolling|lotto|serial|bilanciatore|prestazioni/i, 'Rolling a lotti: drain su db1 con delegate_to, aggiorna, verifica, rimetti. Chi fallisce resta fuori.'],
     ['ruolo', /ruol|collection|molecule|argument|defaults|sito_nginx/i, 'Il ruolo: defaults come interfaccia, argument_specs come contratto controllato prima dei task.'],

@@ -62,5 +62,13 @@
    "23"
   ],
   "perche": "Terraform crea i nodi con for_each e scrive l'inventario con local_file; Ansible lo legge e configura i servizi"
+ },
+ {
+  "concetto": "HAProxy e Headlamp",
+  "da": "21",
+  "verso": [
+   "23"
+  ],
+  "perche": "La parte 11 rifà la 21 con un playbook: stessi oggetti, ma idempotenti e con la deriva visibile da --check --diff"
  }
 ]

@@ -1306,5 +1306,29 @@
    "06",
    "25"
   ]
+ },
+ {
+  "termine": "Headlamp",
+  "definizione": "UI web di Kubernetes che parla con l'API server con il token di chi entra. Nella 21 è servita dallo stesso HAProxy su headlamp.lab.local; nella 23 la installa il playbook.",
+  "lezioni": [
+   "21",
+   "23"
+  ],
+  "alias": [
+   "headlamp-lettore"
+  ]
+ },
+ {
+  "termine": "kubernetes.core",
+  "definizione": "Collection Ansible per Kubernetes: k8s applica oggetti, helm installa chart, k8s_scale scala, k8s_info legge. Usa la libreria Python kubernetes e il kubeconfig del control node.",
+  "lezioni": [
+   "23"
+  ],
+  "alias": [
+   "k8s_scale",
+   "k8s_info",
+   "module_defaults"
+  ],
+  "soloLezioni": true
  }
 ]

@@ -423,5 +423,25 @@
   "lezione": "25",
   "fronte": "Perché non metti user_id come label?",
   "retro": "Ogni valore nuovo crea una serie temporale: la cardinalità esplode, e con lei memoria e disco di Prometheus."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Headlamp senza token: che cosa vedi, e da dove arrivano i permessi?",
+  "retro": "L'API risponde 403 system:anonymous. I permessi stanno nel token di chi entra (qui la ServiceAccount headlamp-lettore con il ClusterRole view, token di 8 ore); il Pod di Headlamp non ne ha (clusterRoleBinding.create=false)."
+ },
+ {
+  "lezione": "21",
+  "fronte": "Perché un Ingress nuovo (headlamp.lab.local) fa ricaricare HAProxy e scalare blu no?",
+  "retro": "Scalare cambia solo i server di un backend esistente: Runtime API, niente reload. Un Ingress nuovo porta un backend nuovo, cioè un cambio di struttura della configurazione: reload."
+ },
+ {
+  "lezione": "23",
+  "fronte": "Parte 11: come si vede la deriva di un Deployment con Ansible senza toccare il cluster?",
+  "retro": "ansible-playbook --tags app --check --diff: mostra replicas 4 → 3 su Deployment/blu. Serve applicare il manifest un oggetto per volta e nascondere managedFields, status e last-applied-configuration con hidden_fields."
+ },
+ {
+  "lezione": "23",
+  "fronte": "Che cosa garantisce changed=0 alla seconda corsa del playbook della parte 11?",
+  "retro": "Che ogni task confronta lo stato con quello desiderato: minikube start ha un when, i task che leggono changed_when: false, helm e k8s cambiano solo se serve. Misurato: ok=46 changed=0 skipped=5."
  }
 ]

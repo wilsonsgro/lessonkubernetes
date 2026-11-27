@@ -4195,6 +4195,35 @@ l'errore arriva al terminale. Il Pod `root` **non viene creato**: non c'è nient
    rolebinding …`), poi ripeti `can-i get secrets` e `can-i get pods -n lab`: cosa cambia e cosa no?
 3. Togli dal Deployment `nginx` il blocco `seccompProfile` e riapplica: che `Warning` stampa kubectl? Il Deployment
    viene accettato? E i Pod nuovi (`kubectl -n lab-sicuro get rs` e `describe rs`)? Rimetti il blocco.
+
+
+## Script create kubeconfig 
+
+```bash
+K=~/lab-sicuro.kubeconfig; rm -f $K
+TOKEN=$(kubectl -n lab-sicuro create token deployer --duration=8h)
+CA=$(kubectl -n lab-sicuro get cm kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' | base64 | tr -d '\n')
+kubectl config --kubeconfig=$K set-cluster lab --server=https://192.168.1.79:9999 --tls-server-name=localhost
+kubectl config --kubeconfig=$K set clusters.lab.certificate-authority-data "$CA"
+kubectl config --kubeconfig=$K set-credentials deployer --token="$TOKEN"
+kubectl config --kubeconfig=$K set-context lab-sicuro --cluster=lab --user=deployer --namespace=lab-sicuro
+kubectl config --kubeconfig=$K use-context lab-sicuro
+chmod 600 $K; unset TOKEN CA
+kubectl --kubeconfig=$K auth whoami
+```
+
+```bash
+K=~/lab-mac.kubeconfig; rm -f $K
+TOKEN=$(kubectl -n accessi get secret wilson-mac-token -o jsonpath='{.data.token}' | base64 -d)
+CA=$(kubectl -n accessi get secret wilson-mac-token -o jsonpath='{.data.ca\.crt}')
+kubectl config --kubeconfig=$K set-cluster lab --server=https://192.168.1.79:9999 --tls-server-name=localhost
+kubectl config --kubeconfig=$K set clusters.lab.certificate-authority-data "$CA"
+kubectl config --kubeconfig=$K set-credentials wilson-mac --token="$TOKEN"
+kubectl config --kubeconfig=$K set-context lab --cluster=lab --user=wilson-mac --namespace=lab
+kubectl config --kubeconfig=$K use-context lab
+chmod 600 $K; unset TOKEN CA
+kubectl --kubeconfig=$K auth whoami
+```
 ````
 
 ### Fonte originale: `07-rbac-pod-security.yaml`
@@ -5882,6 +5911,9 @@ Nel Biodistretto descritto dalle fonti HAProxy gira **fuori** Kubernetes sull'ho
 ### Laboratorio: concentrazione sui fatti osservabili
 Cluster separato `lab-haproxy` (cinque nodi da 1 GiB, Calico), vecchio `lab` preferibilmente fermo, attesa Calico prima dei workload, due controller su worker distinti, Chart `haproxytech/kubernetes-ingress` versione 1.57.1. Non usare `minikube addons enable ingress`, perché in questo materiale installerebbe ingress-nginx. Test `curl -H 'Host: app.lab.local' http://$IP:30080/blu/ciao` mostra Hostname del Pod e path `/ciao`; senza Host corrispondente si ottiene 404. Testare `show proc`, le righe `server` e statistiche `:30024/stats;csv` prima/dopo scaling.
 
+### Headlamp: una UI del cluster dietro lo stesso HAProxy
+Headlamp (chart `headlamp/headlamp` 0.46.0) è una UI web di Kubernetes che parla con l'API server **con il token di chi entra**. Lo script lo installa con Helm sui worker (request 32 Mi, limite 128 Mi; misurati 30–31 Mi) e lo pubblica con un **Ingress di classe `haproxy`** su `headlamp.lab.local`: un altro host nello stesso frontend, un backend nuovo `headlamp_svc_headlamp_http` con l'IP del Pod sulla porta 4466. È un cambio di struttura, quindi un reload: i primi `curl` possono fallire finché HAProxy non ha la configurazione nuova. Con `clusterRoleBinding.create=false` il Pod di Headlamp non ha permessi; l'utente è la ServiceAccount `headlamp-lettore` legata al ClusterRole `view`, con un token a scadenza (`kubectl create token --duration=8h`). Misurato: senza token l'API risponde **403 `system:anonymous`**, non 401, e Headlamp **non** ripiega sulla ServiceAccount del Pod, nemmeno col binding `cluster-admin` di default del chart: il rischio di quel default è chi entra nel Pod, non chi apre la pagina. Col token del lettore `pods` dà 200 e `secrets` 403. Headlamp **non sta nel `.yaml`** della lezione (lì solo commenti): la lezione 22 applica tutto quel manifest, e deve restare com'era.
+
 ### Verifica rapida (HAProxy)
 1. Che cos'è HAProxy? Definisci frontend, backend e server senza nominare Kubernetes.
 2. Perché due Pod HAProxy, e perché su worker differenti?
@@ -5893,6 +5925,8 @@ Cluster separato `lab-haproxy` (cinque nodi da 1 GiB, Calico), vecchio `lab` pre
 8. Quando preferisci `roundrobin` a `leastconn`?
 9. Perché un HAProxy esterno che bilancia nodi richiede un ragionamento su `externalTrafficPolicy`?
 10. Che cosa succede alle connessioni esistenti quando una replica HAProxy muore, anche se ce n'è una seconda?
+11. Perché pubblicare Headlamp con un Ingress nuovo causa un reload, mentre scalare `blu` no?
+12. Senza token Headlamp risponde 403 `system:anonymous`: da dove arrivano allora i permessi, e che cosa protegge `clusterRoleBinding.create=false`?
 
 ## Materiale originale della lezione
 
@@ -5912,13 +5946,14 @@ Spiegazione di `21-architettura-e-haproxy.yaml` (questa cartella) e dello script
 Lo script crea un **cluster minikube nuovo, `lab-haproxy`** (5 nodi da 1 GiB, Calico), ci installa **HAProxy come
 Ingress controller** al posto di ingress-nginx, e ti fa vedere che HAProxy **parla direttamente con i Pod**: legge gli
 Ingress e gli EndpointSlice dall'apiserver, scrive da sé la propria configurazione e aggiunge o toglie i server **senza
-ricaricarsi**.
+ricaricarsi**. Alla fine ci mette davanti **Headlamp**, una UI web del cluster servita dallo stesso HAProxy, con
+il pod senza permessi e un token in sola lettura che scade.
 
 ## I file della lezione
 
 | File | Che cos'è | Come si usa |
 |---|---|---|
-| `~/kubernetesprj/kubernetes/21-architettura-e-haproxy.sh` | lo script **guidato**: crea il cluster, installa HAProxy con Helm, applica il manifest e lo prova, un passo per volta (Invio / s / q) | `bash kubernetes/21-architettura-e-haproxy.sh` |
+| `~/kubernetesprj/kubernetes/21-architettura-e-haproxy.sh` | lo script **guidato**: crea il cluster, installa HAProxy con Helm, applica il manifest e lo prova, installa Headlamp dietro HAProxy, un passo per volta (Invio / s / q) | `bash kubernetes/21-architettura-e-haproxy.sh` |
 | `~/kubernetesprj/lezioni/kubernetes/21-architettura-e-haproxy.yaml` | i **manifest** con la teoria nei commenti: namespace, app `blu` e `verde`, Service e Ingress con le annotazioni `haproxy.org/*` | si **legge** mentre lo script gira; lo applica lo script (o a mano: `kubectl apply -f …`) |
 | `~/kubernetesprj/lezioni/kubernetes/21-architettura-e-haproxy.md` | **questo**: la spiegazione | si legge |
 
@@ -5931,7 +5966,7 @@ manifest, e i comandi stanno già nello script guidato.
 ## Com'è fatto il manifest
 
 ```
-intestazione (commenti)  → teoria: il percorso del traffico, Runtime API, il cluster da 1 GiB, LAB, NEL PROGETTO VERO
+intestazione (commenti)  → teoria: il percorso del traffico, Runtime API, il cluster da 1 GiB, LAB, HEADLAMP, NEL PROGETTO VERO
 Namespace lab-haproxy
 Deployment blu (3)       → whoami, sparsi sui nodi, request piccole
 Deployment verde (2)     → uguale
@@ -5943,7 +5978,10 @@ coda (commenti)          → domande da colloquio, riepilogo
 ```
 
 Versioni misurate: Kubernetes 1.34.0, minikube 1.37.0, chart `haproxytech/kubernetes-ingress` **1.57.1**
-(HAProxy 3.4), Calico.
+(HAProxy 3.4), Calico, chart `headlamp/headlamp` **0.46.0**.
+
+Headlamp **non** sta nel manifest: lo installa lo script con Helm. La lezione 22 applica tutto il manifest della 21
+nel suo cluster, e Headlamp non deve finirci.
 
 ---
 
@@ -6076,7 +6114,100 @@ lezione 01). Lo script la abbassa a 64 Mi, con un limite di 256 Mi. Le app `blu`
 
 ---
 
-## 3. Lo script guidato, passo per passo
+## 3. Headlamp: il cluster visto da una UI, dietro HAProxy
+
+Headlamp è una UI web per Kubernetes (progetto `kubernetes-sigs`, estendibile con plugin). Qui serve a **guardare**
+quello che lo script fa: i 5 nodi, i Pod `blu` che passano da 3 a 5 e tornano a 3, gli Ingress, gli EndpointSlice.
+La lezione 15 l'aveva già installato su MicroK8s con un NodePort; qui entra **dallo stesso HAProxy** della lezione.
+
+```
+browser ──▶ NodePort 30080 ──▶ Pod HAProxy ── Host headlamp.lab.local ──▶ backend headlamp_svc_headlamp_http
+                                                                             │ IP del Pod Headlamp, porta 4466
+                                                                             ▼
+                                                     Pod Headlamp ── con il token del login ──▶ apiserver
+```
+
+### I valori Helm, e perché
+
+```yaml
+clusterRoleBinding:
+  create: false                 # il pod NON è cluster-admin
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 128Mi }
+affinity:                       # come HAProxy: lontano dal control plane
+  nodeAffinity: … minikube.k8s.io/primary NotIn ['true']
+ingress:
+  enabled: true
+  ingressClassName: haproxy     # lo serve il controller di questa lezione
+  hosts:
+    - host: headlamp.lab.local
+      paths: [ { path: /, type: Prefix } ]
+```
+
+| Valore | Perché |
+|---|---|
+| `clusterRoleBinding.create: false` | **la riga che conta**. Di default il chart lega il ServiceAccount **del pod** a `cluster-admin` (il passo 22 lo mostra). Chi entra nel pod, o sfrutta una falla di Headlamp, ha il cluster. Con `false` il pod non può niente: `auth can-i list pods -A --as=…:headlamp:headlamp` → `no` |
+| `resources` | misurato: **30–31 Mi** in uso. Il chart non mette request: sul cluster da 1 GiB meglio dichiararle |
+| `affinity` | il control plane sta all'82–84%: Headlamp va su un worker (misurato: `lab-haproxy-m05`) |
+| `ingress` | il chart crea l'Ingress `headlamp` di classe `haproxy`. Ha un **host suo**: una regola senza host prenderebbe tutto, e il `curl` senza `Host` del passo 19 non darebbe più 404 |
+
+### Un Ingress nuovo è un cambio di struttura
+
+Scalare `blu` non ricarica HAProxy; un Ingress nuovo sì: il controller scrive un backend in più, e il `curl` su
+`headlamp.lab.local` risponde 200 dopo 2–5 tentativi (tre corse):
+
+```
+backend headlamp_svc_headlamp_http from haproxytech
+  mode http
+  balance roundrobin
+  …
+  server s906bf01b7137b87d2bccee32 10.244.121.3:4466 enabled
+```
+
+Stessa regola delle app: l'IP del **Pod** e la sua porta (4466), non il ClusterIP del Service (porta 80).
+
+### Dove stanno i permessi: nel token
+
+Headlamp non decide niente: passa all'apiserver il token che riceve. Misurato sull'API di Headlamp
+(`/clusters/main/api/v1/namespaces/lab-haproxy/…`, attraverso HAProxy):
+
+| Chi | `pods` | `secrets` |
+|---|---|---|
+| nessun token | **403**, l'apiserver vede `system:anonymous` | 403 |
+| token di `headlamp-lettore` (ClusterRole `view`) | **200** | **403**: `view` non legge i Secret |
+
+Senza token è **403, non 401**: Headlamp non ripiega sul ServiceAccount del pod, gira la richiesta così com'è, e
+l'apiserver (con l'autenticazione anonima accesa) la tratta come `system:anonymous`. Misurato anche con il chart di
+default (pod legato a `cluster-admin`): senza token resta 403. Il rischio del default quindi non è il visitatore
+anonimo, è **chi entra nel pod**: il token montato in `/var/run/secrets/kubernetes.io/serviceaccount/` è `cluster-admin`.
+
+Il token del login: `kubectl -n headlamp create token headlamp-lettore --duration=8h`. Scade, e non finisce in nessun
+Secret (lezione 15).
+
+### La UI dal Mac
+
+I nodi minikube si vedono solo dall'Ubuntu, e HAProxy sceglie il backend dall'header `Host`: servono un tunnel e una
+riga in `/etc/hosts` del Mac.
+
+```bash
+ssh -N -L 30080:192.168.49.2:30080 wilsonsgro@192.168.1.79
+# /etc/hosts del Mac:   127.0.0.1 headlamp.lab.local
+# browser:              http://headlamp.lab.local:30080  → incolla il token
+```
+
+Senza la riga in `/etc/hosts`, `http://localhost:30080` arriva con `Host: localhost:30080` e HAProxy risponde 404.
+Verificato dal Mac: la pagina di login di Headlamp arriva attraverso tunnel e HAProxy. Le viste si aggiornano da
+sole: il watch dell'apiserver passa da HAProxy (scalando `blu` 3 → 4 → 3 arrivano gli eventi `ADDED`, `MODIFIED`,
+`DELETED`) e il websocket di Headlamp (`/wsMultiplexer`) risponde `101`.
+
+Cosa guardare mentre lo script va avanti dal passo 28: **Workloads → Pods**, namespace `lab-haproxy`, i Pod `blu`
+salgono a 5 e tornano a 3; **Network → Ingresses**, i tre Ingress di classe `haproxy` (`app`, `limitato`, `headlamp`);
+**Cluster → Nodes**, i 5 nodi.
+
+---
+
+## 4. Lo script guidato, passo per passo
 
 | # | Comando | Cosa vedi |
 |---|---|---|
@@ -6100,13 +6231,20 @@ lezione 01). Lo script la abbassa a 64 Mi, con un limite di 256 Mi. Le app `blu`
 | 18 | sei `curl` a `/blu` | roundrobin; la sequenza non è perfetta perché le 2 repliche di HAProxy girano ognuna per conto suo |
 | 19 | `curl` senza `Host` | 404: nessuna regola combacia |
 | 20 | `sed` su `/etc/haproxy/haproxy.cfg` + `get endpointslices` | una riga `server` per IP di Pod, gli stessi IP dell'EndpointSlice |
-| 21 | `show proc` sul socket master | il numero di reload, prima |
-| 22 | `scale deploy/blu --replicas=5` + log | `add server … New server registered` |
-| 23 | `show proc` e `show servers state` | reload invariati, 5 server (stato 2 = UP) |
-| 24 | 12 `curl` su `limitato.lab.local` | 200 e poi 429; misurato in due corse **10 e 9 volte 200** su 12: fino a 5 per replica |
-| 25 | `curl …:30024/stats;csv` | la pagina statistiche in CSV: backend, server, `UP` |
-| 26 | `scale deploy/blu --replicas=3` + log | `Server deleted.` due volte: i server in più escono a caldo |
-| 27 | `kubectl delete -f …; helm uninstall …` | pulizia |
+| 21 | `helm repo add headlamp …; helm search repo …` | il chart `headlamp/headlamp` 0.46.0 |
+| 22 | `helm show values … \| sed -n '/^clusterRoleBinding:/…'` | la trappola: di default `create: true` con `cluster-admin`, cioè il **pod** ha tutto il cluster |
+| 23 | `helm upgrade --install headlamp … -f - <<VALORI` | pod su un worker, request 32 Mi, Ingress `headlamp` di classe `haproxy` su `headlamp.lab.local` |
+| 24 | `auth can-i … --as=…:headlamp:headlamp` + SA `headlamp-lettore` con `view` | `no`: il ServiceAccount del pod non può niente |
+| 25 | `curl` ripetuto fino a 200 su `headlamp.lab.local` + `sed` su `haproxy.cfg` | 200 dopo qualche tentativo; il backend nuovo `headlamp_svc_headlamp_http`, una riga `server` con l'IP del Pod e la porta 4466 |
+| 26 | tre `curl` all'API di Headlamp (`/clusters/main/api/v1/…`) | senza token `403 system:anonymous`; col lettore `pods` 200, `secrets` 403 |
+| 27 | `kubectl -n headlamp create token headlamp-lettore --duration=8h` | il token da incollare nel browser; la nota dice come aprirlo dal Mac |
+| 28 | `show proc` sul socket master | il numero di reload, prima |
+| 29 | `scale deploy/blu --replicas=5` + log | `add server … New server registered` |
+| 30 | `show proc` e `show servers state` | reload invariati, 5 server (stato 2 = UP) |
+| 31 | 12 `curl` su `limitato.lab.local` | 200 e poi 429; misurato in due corse **10 e 9 volte 200** su 12: fino a 5 per replica |
+| 32 | `curl …:30024/stats;csv` | la pagina statistiche in CSV: backend, server, `UP` |
+| 33 | `scale deploy/blu --replicas=3` + log | `Server deleted.` due volte: i server in più escono a caldo |
+| 34 | `helm uninstall headlamp …; kubectl delete -f …; helm uninstall haproxy …` | pulizia: prima Headlamp e il suo utente, poi app e controller |
 
 `kubectl exec deploy/haproxy-kubernetes-ingress` sceglie **uno** dei due Pod: l'altro ha la sua configurazione e i suoi
 contatori.
@@ -6127,7 +6265,7 @@ ssh -N -L 30024:192.168.49.2:30024 wilsonsgro@192.168.1.79
 
 ---
 
-## 4. Dentro o fuori dal cluster
+## 5. Dentro o fuori dal cluster
 
 Nel Biodistretto (`~/biodistretto/kubernetes`) HAProxy sta **fuori**, sull'host, ed entra dai NodePort di nginx:
 
@@ -6143,7 +6281,7 @@ e un Ingress controller dentro che manda ai Pod.
 
 ---
 
-## 5. Domande da colloquio
+## 6. Domande da colloquio
 
 - **Un Ingress controller manda il traffico al ClusterIP?** Di solito no: HAProxy e ingress-nginx leggono gli
   EndpointSlice e parlano con gli IP dei Pod.
@@ -6155,6 +6293,11 @@ e un Ingress controller dentro che manda ai Pod.
   diversa (websocket, upload, query lente).
 - **Perché due IngressClass nello stesso cluster?** Per avere due controller (uno pubblico e uno interno, o nginx e
   HAProxy durante una migrazione): ogni Ingress sceglie il suo con `ingressClassName`.
+- **Headlamp (o Dashboard, Lens): dove stanno i permessi?** Nel token con cui si entra, non nel pod della UI. Il chart
+  di default lega il pod a `cluster-admin`: si spegne con `clusterRoleBinding.create=false`, e a ogni utente un token
+  a tempo con il ruolo minimo (`view`, o un Role in un solo namespace per scrivere).
+- **Senza token l'API risponde 403, non 401: perché?** L'apiserver ha l'autenticazione anonima accesa: una richiesta
+  senza credenziali diventa `system:anonymous`, che è autenticato ma senza permessi.
 
 ---
 
@@ -6166,6 +6309,7 @@ e un Ingress controller dentro che manda ai Pod.
 - Annotazioni: sul Service il backend, sull'Ingress il frontend.
 - Il rate limit è **per replica**.
 - 5 nodi da 1 GiB: serve `--force`, le request vanno abbassate, il controller sta lontano dal control plane.
+- Headlamp entra dallo stesso HAProxy (Ingress su `headlamp.lab.local`): il pod senza permessi, il token `view` a tempo.
 
 ## Prova da solo
 
@@ -6176,6 +6320,9 @@ e un Ingress controller dentro che manda ai Pod.
    controller a 1 (`helm upgrade … --reuse-values --set controller.replicaCount=1`)?
 4. Spegni un worker con un Pod HAProxy (`docker stop lab-haproxy-m02`, poi `docker start`): i `curl` continuano a
    passare? Quanto ci mette Kubernetes ad accorgersene?
+5. Crea un ServiceAccount `headlamp-scrittore` con un Role nel **solo** namespace `lab-haproxy` che permette `get`,
+   `list`, `watch`, `patch` e `update` su `deployments` e `deployments/scale`. Entra in Headlamp con il suo token e
+   scala `verde` dalla UI: nei log del controller vedi `add server`? E con il token di `headlamp-lettore`?
 ````
 
 ### Fonte originale: `21-architettura-e-haproxy.yaml`
@@ -6185,7 +6332,7 @@ e un Ingress controller dentro che manda ai Pod.
 ````yaml
 # ═══════════════════════════════════════════════════════════════════════════
 # 21. ARCHITETTURA CON HAPROXY COME INGRESS CONTROLLER
-# Versione: Kubernetes 1.34 · minikube 1.37 · chart haproxytech/kubernetes-ingress 1.57.1 (HAProxy 3.4) · Calico
+# Versione: Kubernetes 1.34 · minikube 1.37 · chart haproxytech/kubernetes-ingress 1.57.1 (HAProxy 3.4) · Calico · Headlamp 0.46.0
 # Livello: 1 — Workload
 # ═══════════════════════════════════════════════════════════════════════════
 # Un Ingress è solo una REGOLA (host, path → Service). La esegue un
@@ -6225,6 +6372,18 @@ e un Ingress controller dentro che manda ai Pod.
 #   for i in $(seq 8); do curl -s -o /dev/null -w '%{http_code} ' \
 #       -H 'Host: limitato.lab.local' http://$IP:30080/; done   # 200… poi 429
 #   statistiche: http://$IP:30024/stats   (dal Mac: tunnel ssh, vedi .md)
+#
+# HEADLAMP (lo installa lo script con Helm, NON questo file)
+#   Una UI web del cluster, servita dallo stesso HAProxy: un Ingress di
+#   classe haproxy su headlamp.lab.local → Service headlamp → Pod.
+#   Il pod di Headlamp non ha permessi (clusterRoleBinding.create=false):
+#   ogni chiamata all'apiserver usa il token incollato nel login. Qui il
+#   token è di headlamp-lettore, ClusterRole "view": vede Pod, Service,
+#   Ingress, EndpointSlice; non i Secret (403).
+#   Fuori da questo file perché la 22 lo applica tutto: Headlamp non
+#   deve comparire anche in lab-monitoring.
+#   curl -s -o /dev/null -w '%{http_code}' \
+#       -H 'Host: headlamp.lab.local' http://$IP:30080/          # → 200
 #
 # ── NEL PROGETTO VERO: il Biodistretto su minikube ───────────────────────
 #   ~/biodistretto/kubernetes (branch kubernetes). I grep partono da lì:
@@ -6406,6 +6565,12 @@ spec:
 # D: roundrobin o leastconn?
 # R: roundrobin per richieste brevi e simili; leastconn per connessioni
 #    lunghe o di durata diversa (websocket, upload, query lente).
+#
+# D: Headlamp (o Dashboard, Lens): dove stanno i permessi?
+# R: Nel token con cui si entra, non nel pod della UI. Il chart di
+#    default lega il pod a cluster-admin: si spegne con
+#    clusterRoleBinding.create=false e si dà a ogni utente un token a
+#    tempo (kubectl create token --duration) con il ruolo minimo.
 
 # ══════════════════════════════════════════════════════════════════════════
 # RIEPILOGO
@@ -6415,6 +6580,7 @@ spec:
 # • Annotazioni: sul Service il backend, sull'Ingress il frontend
 # • Rate limit per replica, non globale
 # • 5 nodi da 1 GiB: --force, request piccole, niente controller sul control plane
+# • Headlamp dietro HAProxy: pod senza permessi, token "view" a tempo
 # ══════════════════════════════════════════════════════════════════════════
 ````
 
@@ -6424,11 +6590,12 @@ spec:
 
 ````bash
 #!/usr/bin/env bash
-# Lezione 21 — cluster minikube "lab-haproxy" (5 nodi da 1 GiB, Calico) con HAProxy come Ingress controller al posto di ingress-nginx.
+# Lezione 21 — cluster minikube "lab-haproxy" (5 nodi da 1 GiB, Calico) con HAProxy come Ingress controller al posto di ingress-nginx, e Headlamp servito da HAProxy per vedere il cluster.
 source "$(dirname "$0")/../lib/passo.sh"
 titolo "21. Architettura con HAProxy come Ingress controller"
 F="$LEZIONI/kubernetes/21-architettura-e-haproxy.yaml"
 CHART_VER=1.57.1
+HL_VER=0.46.0
 
 passo "Versioni dei client: kubectl, minikube, helm (HAProxy si installa con Helm)" \
   'kubectl version --client; minikube version --short; helm version --short'
@@ -6492,6 +6659,47 @@ passo "Senza header Host nessuna regola combacia: 404 di HAProxy (il backend di 
   "curl -s -o /dev/null -w '%{http_code}\n' http://\$(minikube -p lab-haproxy ip):30080/"
 passo "La config che il controller ha SCRITTO da sé: un backend per Service, una riga server per IP di Pod (non il ClusterIP)" \
   'kubectl -n haproxy-controller exec deploy/haproxy-kubernetes-ingress -- sed -n "/^backend lab-haproxy_svc_blu/,/^\$/p;/^backend lab-haproxy_svc_verde/,/^\$/p" /etc/haproxy/haproxy.cfg; kubectl -n lab-haproxy get endpointslices'
+passo "Headlamp, la UI web del cluster: repo Helm di kubernetes-sigs e versione del chart" \
+  "helm repo add headlamp https://kubernetes-sigs.github.io/headlamp/ >/dev/null 2>&1; helm repo update headlamp >/dev/null; helm search repo headlamp/headlamp --version $HL_VER"
+passo "Trappola: di default il chart lega il ServiceAccount DEL POD a cluster-admin. Chi entra nel pod ha il cluster" \
+  "helm show values headlamp/headlamp --version $HL_VER | sed -n '/^clusterRoleBinding:/,/^\$/p'"
+passo "Installa Headlamp: pod senza permessi, request piccole, fuori dal control plane, e un Ingress di classe haproxy su headlamp.lab.local" \
+  "helm upgrade --install headlamp headlamp/headlamp --version $HL_VER -n headlamp --create-namespace --wait --timeout 5m -f - <<'VALORI'
+clusterRoleBinding:
+  create: false
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 128Mi }
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - { key: minikube.k8s.io/primary, operator: NotIn, values: ['true'] }
+ingress:
+  enabled: true
+  ingressClassName: haproxy
+  hosts:
+    - host: headlamp.lab.local
+      paths:
+        - { path: /, type: Prefix }
+VALORI
+kubectl -n headlamp get pods -o wide; kubectl -n headlamp get ingress"
+passo "Il ServiceAccount del pod non può niente: i permessi stanno nel token del login. Utente headlamp-lettore con il ClusterRole view" \
+  "kubectl auth can-i list pods -A --as=system:serviceaccount:headlamp:headlamp; kubectl -n headlamp create serviceaccount headlamp-lettore --dry-run=client -o yaml | kubectl apply -f - && kubectl create clusterrolebinding headlamp-lettore --clusterrole=view --serviceaccount=headlamp:headlamp-lettore --dry-run=client -o yaml | kubectl apply -f -"
+passo "Un Ingress nuovo è un cambio di struttura: HAProxy scrive un backend in più e si ricarica. Aspetto 200 su headlamp.lab.local" \
+  "IP=\$(minikube -p lab-haproxy ip); for i in \$(seq 60); do c=\$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: headlamp.lab.local' http://\$IP:30080/); [ \"\$c\" = 200 ] && break; sleep 1; done; echo \"headlamp.lab.local → \$c dopo \$i tentativi\"; kubectl -n haproxy-controller exec deploy/haproxy-kubernetes-ingress -- sed -n '/^backend headlamp_svc_headlamp/,/^\$/p' /etc/haproxy/haproxy.cfg"
+passo "Headlamp gira all'apiserver il token che riceve. Senza token l'apiserver vede system:anonymous (403); col lettore i Pod sì, i Secret no (403)" \
+  "IP=\$(minikube -p lab-haproxy ip); T=\$(kubectl -n headlamp create token headlamp-lettore --duration=10m); U=http://\$IP:30080/clusters/main/api/v1/namespaces/lab-haproxy; H='Host: headlamp.lab.local'
+echo \"senza token → pods:    \$(curl -s -w ' %{http_code}' -H \"\$H\" \$U/pods | grep -oE 'system:anonymous|[0-9]{3}\$' | sort -u | tr '\n' ' ')\"
+echo \"lettore     → pods:    \$(curl -s -o /dev/null -w '%{http_code}' -H \"\$H\" -H \"Authorization: Bearer \$T\" \$U/pods)\"
+echo \"lettore     → secrets: \$(curl -s -o /dev/null -w '%{http_code}' -H \"\$H\" -H \"Authorization: Bearer \$T\" \$U/secrets)\""
+passo "Il token per il browser: scade fra 8 ore e non finisce in nessun Secret" \
+  'kubectl -n headlamp create token headlamp-lettore --duration=8h'
+nota "Dal Mac:  ssh -L 30080:$(minikube -p lab-haproxy ip):30080 wilsonsgro@192.168.1.79" \
+     "         e in /etc/hosts del Mac:  127.0.0.1 headlamp.lab.local" \
+     "Browser:  http://headlamp.lab.local:30080 → incolla il token. Apri Workloads → Pods, namespace lab-haproxy:" \
+     "         nei prossimi passi vedi blu salire a 5 e tornare a 3, e i Pod HAProxy in haproxy-controller."
 passo "Reload contati prima di scalare: colonna reloads del processo master" \
   'kubectl -n haproxy-controller exec deploy/haproxy-kubernetes-ingress -- sh -c "echo show proc | socat stdio /run/haproxy-master.sock | head -2"'
 passo "Scalo blu a 5: il controller aggiunge i server con la Runtime API ('add server'), senza ricaricare" \
@@ -6505,8 +6713,8 @@ passo "La pagina statistiche di HAProxy in CSV: backend, server, stato. Nel brow
   "curl -s \"http://\$(minikube -p lab-haproxy ip):30024/stats;csv\" | cut -d, -f1,2,18 | grep -E '^(# pxname|lab-haproxy_svc)'"
 passo "Riporto blu a 3: i server in più escono a caldo come sono entrati" \
   'kubectl -n lab-haproxy scale deploy/blu --replicas=3 && sleep 10; kubectl -n haproxy-controller logs deploy/haproxy-kubernetes-ingress --since=30s | grep -iE "delete|del server" | tail -2'
-passo "Pulizia: le app e il namespace lab-haproxy, poi il controller HAProxy" \
-  "kubectl delete -f $F --ignore-not-found; helm uninstall haproxy -n haproxy-controller; kubectl delete namespace haproxy-controller --ignore-not-found"
+passo "Pulizia: Headlamp e il suo utente, le app e il namespace lab-haproxy, poi il controller HAProxy" \
+  "helm uninstall headlamp -n headlamp; kubectl delete clusterrolebinding headlamp-lettore --ignore-not-found; kubectl delete namespace headlamp --ignore-not-found; kubectl delete -f $F --ignore-not-found; helm uninstall haproxy -n haproxy-controller; kubectl delete namespace haproxy-controller --ignore-not-found"
 nota "Spegnere il cluster senza perderlo:  minikube -p lab-haproxy stop" \
      "Cancellarlo del tutto:              minikube -p lab-haproxy delete" \
      "Tornare al cluster delle altre lezioni: kubectl config use-context lab (dopo minikube -p lab start)"
@@ -6542,7 +6750,7 @@ I seguenti file sono incorporati integralmente in questo documento. SHA-256 calc
 | `06-scheduling-autoscaling.md` | 17121 | `798dc42ed0d66cd46cee725d5f6499308f540f477de384ce6f4dacae7d9fc222` |
 | `06-scheduling-autoscaling.yaml` | 8620 | `3d96cf0789879be7e25ed638abea488e0f3fc08617849cf74a646ae8dfdd4aba` |
 | `06-scheduling-autoscaling.sh` | 2364 | `3b020a303fff64b4598c706b5de3392971cf32a4dcf26f0266d097e73afe1cdf` |
-| `07-rbac-pod-security.md` | 16103 | `c5eb944cf031881346dd19dcda984cbce7c6d29ecc1e0715fededbca6d1e1d00` |
+| `07-rbac-pod-security.md` | 17542 | `637b5115e29f06c7aabb99824c945e31840784f514db8c9501cde6f1c099e6d3` |
 | `07-rbac-pod-security.yaml` | 8798 | `c89865ece96256457ed8a6143c25eba7808caa0a44495c2ff6ecc50adf276f61` |
 | `07-rbac-pod-security.sh` | 1374 | `34a6b6589bfdd0009bb5f8194dcc9060ea1e1e9e6a5a106fb8e9457306d38c40` |
 | `08-troubleshooting.md` | 17604 | `87fba3e13f5d6229d378fb0a1d4dd9febb6cefa39805de74ad16343a400a1db1` |
@@ -6551,9 +6759,9 @@ I seguenti file sono incorporati integralmente in questo documento. SHA-256 calc
 | `09-helm-chart.md` | 18779 | `6ecfcb05425db3c98557dbf1a7497c52cf3eef0e3ac1b0d672dbc1327165ff53` |
 | `09-helm-chart(1).sh` | 12147 | `f5a5fb07cce421979e4f75038772f8f313138d476ed03639bc126d18864eb26a` |
 | `09-helm-chart.sh` | 2677 | `e43078306f4f2f43ae70c60553447ae08d3c274bdd47550e22e534aff5489ba9` |
-| `21-architettura-e-haproxy.md` | 15219 | `6384bc1f8f571eb0f9b29ceaf5aa9db5e3cefd82a721f14846f09b59e3911133` |
-| `21-architettura-e-haproxy.yaml` | 10104 | `933213998670961cd65a37bff8adee9f3e6b0539a90648ab81e05180d3ceb01d` |
-| `21-architettura-e-haproxy.sh` | 8681 | `514c06462778cc6a1f66ff0ba8515e0e7f1381edafe22e65cefd2700768398ad` |
+| `21-architettura-e-haproxy.md` | 22527 | `3ca6576c85915552f73a68642a5f01a6e7d275652f8613a4c2fba8552dbb2912` |
+| `21-architettura-e-haproxy.yaml` | 11224 | `09f5b3ab684867226de84af58747aca64c53a7743fe613cb78b4fb57d28d8408` |
+| `21-architettura-e-haproxy.sh` | 12600 | `28d1be8ed54e7611edf02b80a97d2e93ebe2795deeabdbafc8353766a7e51c62` |
 
 # Appendice — Risposte rapide alle due domande su HAProxy emerse in chat
 

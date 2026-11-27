@@ -110,5 +110,33 @@
   "spiegazione": "path-rewrite sull'Ingress app elimina il prefisso /blu o /verde: whoami risponde con Hostname del Pod e GET /ciao. Senza Host corrispondente si ottiene 404.",
   "fonte": "1. L'architettura — Le annotazioni: Service = backend, Ingress = frontend",
   "tipo": "didattica"
+ },
+ {
+  "id": "21-9",
+  "domanda": "Headlamp è installato con clusterRoleBinding.create=false. Apri la UI senza token e chiedi la lista dei Pod: che cosa risponde l'API?",
+  "opzioni": [
+   "403 per system:anonymous: i permessi arrivano dal token di chi entra",
+   "200: Headlamp usa la ServiceAccount del suo Pod",
+   "401 Unauthorized",
+   "Una lista vuota"
+  ],
+  "corretta": 0,
+  "spiegazione": "Misurato nel laboratorio: senza token l'API risponde 403 system:anonymous, non 401, e Headlamp non ripiega sulla ServiceAccount del Pod, nemmeno col binding cluster-admin di default del chart. Col token di headlamp-lettore (ClusterRole view) pods dà 200 e secrets 403.",
+  "fonte": "21-architettura-e-haproxy.md — 3. Headlamp: Dove stanno i permessi: nel token",
+  "tipo": "esito-lab"
+ },
+ {
+  "id": "21-10",
+  "domanda": "Scalare blu da 3 a 5 non fa ricaricare HAProxy. Pubblicare Headlamp con un nuovo Ingress su headlamp.lab.local sì: perché?",
+  "opzioni": [
+   "Un Ingress nuovo porta un backend nuovo: è un cambio di struttura di haproxy.cfg, non solo di server",
+   "Perché Headlamp usa i websocket",
+   "Perché l'Ingress di Headlamp ha una classe diversa",
+   "Non è vero: nessuno dei due causa reload"
+  ],
+  "corretta": 0,
+  "spiegazione": "La Runtime API aggiunge e toglie server in un backend esistente; un backend nuovo (headlamp_svc_headlamp_http, Pod sulla porta 4466) richiede di riscrivere la configurazione e ricaricare. Per questo i primi curl verso headlamp.lab.local possono fallire.",
+  "fonte": "21-architettura-e-haproxy.md — 3. Headlamp: Un Ingress nuovo è un cambio di struttura",
+  "tipo": "didattica"
  }
 ]

@@ -96,6 +96,27 @@ sistema operativo**. Due strumenti sulla stessa cosa portano drift e lotte fra t
 oppure immagini costruite (Packer + Ansible) e VM sostituite da Terraform. In Kubernetes l'immutabile è il default:
 l'immagine container è l'artefatto, Ansible resta per i nodi e quello che sta fuori dal cluster.
 
+### Parte 11: la lezione 21 rifatta da un playbook
+
+Gli stessi oggetti della [lezione 21](/lezioni/21.html) (cluster `lab-ansible` da 5 nodi da 1 GiB, HAProxy, le app `blu` e
+`verde`, Headlamp) non li crea più uno script di comandi ma un playbook su `localhost`: i «nodi» non sono host
+nell'inventario, è l'API di Kubernetes. `kubernetes.core.helm` installa i chart con i valori come dizionario YAML,
+`kubernetes.core.k8s` applica il manifest della 21 (letto, non copiato), `k8s_scale` scala, `uri` + `until` + `assert`
+rifanno le prove. `module_defaults` fissa il contesto `lab-ansible` per tutti i task: il cluster giusto anche se
+`kubectl` punta altrove. Ogni passo dello script guidato lancia un **tag**; i tag `never` (token, deriva, pulizia,
+distruggi) girano solo se li chiedi.
+
+- **Idempotenza misurata**: la seconda corsa completa dà `ok=46 changed=0 skipped=5`. `minikube start` gira solo
+  se il cluster è spento (`when`), i task che leggono hanno `changed_when: false`.
+- **Deriva**: con `blu` portato a 4 a mano, `--check --diff` mostra solo `Deployment/blu`, `replicas 4 → 3`, senza
+  toccare il cluster; `--tags app` lo riporta a 3. Per avere quel diff il manifest va applicato **un oggetto per
+  volta** (con `src:` a più documenti il diff non esce) e `hidden_fields` toglie `managedFields`, `status` e
+  l'annotazione `last-applied-configuration`, ma non le `haproxy.org/*`, che sono configurazione.
+- In `--check` i `command` e gli `uri` non girano: i task che leggono vogliono `check_mode: false`.
+- Le prove della 21 tornano come `assert`: dopo lo scaling i reload restano 4 e i server diventano 5; il rate limit
+  lascia passare 9 o 10 richieste su 12 (una stick-table per replica). Il token di Headlamp esce con `no_log`.
+- Il control plane resta a 841–891 Mi su 1024: HAProxy e Headlamp stanno sui worker.
+
 ### Verifica rapida (Ansible)
 
 1. Che cosa serve sui nodi perché Ansible li possa gestire, e perché si dice «agentless»?
@@ -108,3 +129,6 @@ l'immagine container è l'artefatto, Ansible resta per i nodi e quello che sta f
 8. Come tieni una password di DB in git senza metterla in chiaro, e come eviti che compaia nei log?
 9. Nel rolling update della parte 09 web2 si rompe: perché resta fuori dal bilanciatore mentre web1 continua a servire?
 10. Nella catena della parte 10, chi conosce gli IP dei nodi e come arrivano ad Ansible?
+11. Nella parte 11 il playbook gira su `localhost`: dove sono i «nodi» che Ansible configura, e chi tiene il cluster giusto?
+12. Perché la seconda corsa dice `changed=0` anche se contiene `minikube start` e diversi `uri`?
+13. Qualcuno scala `blu` a 4 a mano: che cosa mostra `--check --diff`, e perché il manifest si applica un oggetto alla volta?

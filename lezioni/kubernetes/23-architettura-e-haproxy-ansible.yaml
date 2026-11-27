@@ -1,0 +1,688 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 23. LA 21 CON ANSIBLE: CLUSTER, HAPROXY, APP E HEADLAMP DA UN PLAYBOOK
+# Versione: ansible-core 2.21 · kubernetes.core 6.6 · Kubernetes 1.34 · minikube 1.37
+#           chart haproxytech/kubernetes-ingress 1.57.1 · headlamp/headlamp 0.46.0 · Helm 4
+# Livello: 1 — Workload
+# ═══════════════════════════════════════════════════════════════════════════
+# Lo stesso laboratorio della 21 (HAProxy Ingress controller + Headlamp),
+# ma ogni azione la fa Ansible. Questo file è un PLAYBOOK, non un manifest:
+# un solo play su localhost, diviso in sezioni con i TAG. Lo script guidato
+# (kubernetes/23-architettura-e-haproxy-ansible.sh) lo lancia un tag per volta.
+#
+#   ansible-playbook 23-…-ansible.yaml --tags cluster    # solo il cluster
+#   ansible-playbook 23-…-ansible.yaml                   # tutto tranne i tag "never"
+#   ansible-playbook 23-…-ansible.yaml --tags pulizia    # smonta (tag never)
+#
+# CHI FA COSA
+#   minikube        → ansible.builtin.command (non c'è un modulo): l'idempotenza
+#                     la scrivi tu, con "when" e "changed_when"
+#   Helm            → kubernetes.core.helm_repository, kubernetes.core.helm
+#   manifest        → kubernetes.core.k8s con src: il file della 21, NON copiato
+#   letture         → kubernetes.core.k8s_info, k8s_exec, k8s_log
+#   prove HTTP      → ansible.builtin.uri con until/retries al posto dei curl in loop
+#   controlli       → ansible.builtin.assert: se un controllo fallisce, il play si ferma
+#
+# IDEMPOTENZA: la seconda corsa deve dire changed=0. Ogni "command" che legge
+# soltanto ha changed_when: false; quelli che cambiano girano solo se serve.
+#
+# CLUSTER: profilo lab-ansible, 5 nodi da 1 GiB, Calico, come lab-haproxy
+# della 21 ma separato. Uno solo acceso per volta: 5 GiB ciascuno.
+#
+# module_defaults mette context: lab-ansible su TUTTI i moduli k8s e helm:
+# anche se kubectl punta altrove, il playbook non tocca un altro cluster.
+
+- name: "Lezione 23 — HAProxy, app e Headlamp su minikube, con Ansible"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    profilo: lab-ansible
+    hap_ver: 1.57.1
+    hl_ver: 0.46.0
+    manifest_21: "{{ playbook_dir }}/21-architettura-e-haproxy.yaml"
+    minikube_start: >-
+      minikube start -p {{ profilo }} --driver=docker --nodes=5 --cpus=2
+      --memory=1g --cni=calico
+    fuori_dal_control_plane:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - { key: minikube.k8s.io/primary, operator: NotIn, values: ["true"] }
+
+  module_defaults:
+    group/kubernetes.core.k8s: { context: "{{ profilo }}" }
+    group/kubernetes.core.helm: { context: "{{ profilo }}" }
+
+  tasks:
+    # ── SEMPRE: stato del cluster e IP, servono a tutte le sezioni ──────────
+    - name: Il cluster esiste ed è acceso?
+      ansible.builtin.command: minikube -p {{ profilo }} status --format={{ '{{.APIServer}}' }}
+      register: stato
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      tags: always
+
+    - name: IP del nodo control plane (vuoto se il cluster non c'è)
+      ansible.builtin.set_fact:
+        acceso: "{{ stato.stdout_lines[:1] == ['Running'] }}"
+        ip: "{{ lookup('ansible.builtin.pipe', 'minikube -p ' ~ profilo ~ ' ip 2>/dev/null || true') }}"
+      tags: always
+
+    # ── versioni ─────────────────────────────────────────────────────────────
+    - name: Versioni dei client
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - kubectl version --client
+        - minikube version --short
+        - helm version --short
+      register: versioni
+      check_mode: false
+      changed_when: false
+      tags: versioni
+
+    - name: Mostra le versioni
+      ansible.builtin.debug:
+        msg: "{{ ['ansible-core ' ~ ansible_version.full] + versioni.results | map(attribute='stdout_lines') | flatten }}"
+      tags: versioni
+
+    # ── trappola: 1 GiB senza --force ───────────────────────────────────────
+    - name: Senza --force minikube rifiuta 1 GiB per nodo (uscita 23 attesa)
+      ansible.builtin.command: "{{ minikube_start }}"
+      register: senza_force
+      changed_when: false
+      failed_when: senza_force.rc != 23
+      when: not acceso
+      tags: trappola
+
+    - name: Il messaggio di minikube
+      ansible.builtin.debug:
+        msg: "rc={{ senza_force.rc }} · {{ (senza_force.stdout_lines + senza_force.stderr_lines) | select('search', 'RSRC_INSUFFICIENT') | first | default('') | trim }}"
+      when: senza_force is not skipped
+      tags: trappola
+
+    # ── cluster ──────────────────────────────────────────────────────────────
+    - name: Crea il cluster (5 nodi da 1 GiB, Calico, --force). Qualche minuto
+      ansible.builtin.command: "{{ minikube_start }} --force"
+      when: not acceso
+      tags: cluster
+
+    - name: Contesto corrente di kubectl
+      ansible.builtin.command: kubectl config current-context
+      register: contesto
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      tags: cluster
+
+    - name: Punta kubectl su {{ profilo }} (solo se punta altrove)
+      ansible.builtin.command: kubectl config use-context {{ profilo }}
+      when: contesto.stdout != profilo
+      tags: cluster
+
+    - name: Aspetta calico-node pronto su tutti i nodi (minikube finisce prima del CNI)
+      kubernetes.core.k8s_info:
+        kind: DaemonSet
+        namespace: kube-system
+        name: calico-node
+      register: calico
+      until: >-
+        calico.resources | length > 0 and
+        calico.resources[0].status.numberReady | default(0) == 5
+      retries: 60
+      delay: 5
+      tags: cluster
+
+    - name: Nodi e ruolo
+      kubernetes.core.k8s_info:
+        kind: Node
+      register: nodi
+      tags: cluster
+
+    - name: Mostra i nodi (primary=true è il control plane)
+      ansible.builtin.debug:
+        msg: >-
+          {% set r = [] %}{% for n in nodi.resources %}{% set _ = r.append(n.metadata.name ~ ' primary=' ~ n.metadata.labels.get('minikube.k8s.io/primary', 'false')) %}{% endfor %}{{ r }}
+      tags: cluster
+
+    - name: Addon di minikube
+      ansible.builtin.command: minikube -p {{ profilo }} addons list -o json
+      register: addons
+      check_mode: false
+      changed_when: false
+      tags: cluster
+
+    - name: Abilita metrics-server (solo se spento). NON 'ingress', sarebbe nginx
+      ansible.builtin.command: minikube -p {{ profilo }} addons enable metrics-server
+      when: (addons.stdout | from_json)['metrics-server'].Status != 'enabled'
+      tags: cluster
+
+    - name: Addon di ingress disponibili in minikube (HAProxy non c'è)
+      ansible.builtin.debug:
+        msg: "{{ addons.stdout | from_json | dict2items | selectattr('key', 'search', 'ingress|kong|haproxy') | map(attribute='key') | list }}"
+      tags: cluster
+
+    # ── haproxy ──────────────────────────────────────────────────────────────
+    - name: Repo Helm di HAProxy Technologies
+      kubernetes.core.helm_repository:
+        repo_name: haproxytech
+        repo_url: https://haproxytech.github.io/helm-charts
+      tags: haproxy
+
+    - name: "Trappola: il chart chiede 2 GiB di request per replica"
+      ansible.builtin.shell: >-
+        helm show values haproxytech/kubernetes-ingress --version {{ hap_ver }}
+        | sed -n '/^  resources:/,/^$/p' | head -7
+      register: hap_default
+      check_mode: false
+      changed_when: false
+      tags: haproxy
+
+    - name: Le request di default
+      ansible.builtin.debug:
+        var: hap_default.stdout_lines
+      tags: haproxy
+
+    - name: Installa HAProxy (2 repliche su worker diversi, 64 Mi, NodePort 30080/30443/30024)
+      kubernetes.core.helm:
+        release_name: haproxy
+        chart_ref: haproxytech/kubernetes-ingress
+        chart_version: "{{ hap_ver }}"
+        release_namespace: haproxy-controller
+        create_namespace: true
+        wait: true
+        timeout: 5m0s
+        release_values:
+          controller:
+            replicaCount: 2
+            resources:
+              requests: { cpu: 50m, memory: 64Mi }
+              limits: { memory: 256Mi }
+            service:
+              nodePorts: { http: 30080, https: 30443, stat: 30024 }
+            affinity:
+              nodeAffinity: "{{ fuori_dal_control_plane.nodeAffinity }}"
+              podAntiAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - topologyKey: kubernetes.io/hostname
+                    labelSelector:
+                      matchLabels: { app.kubernetes.io/name: kubernetes-ingress }
+      tags: haproxy
+
+    - name: Pod del controller
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: haproxy-controller
+        label_selectors: [app.kubernetes.io/name=kubernetes-ingress]
+      register: hap_pod
+      tags: [haproxy, verifica, scala, headlamp]
+
+    - name: Dove stanno i Pod HAProxy
+      ansible.builtin.debug:
+        msg: "{{ hap_pod.resources | map(attribute='metadata.name') | zip(hap_pod.resources | map(attribute='spec.nodeName')) | map('join', ' → ') | list }}"
+      tags: haproxy
+
+    # ── memoria ──────────────────────────────────────────────────────────────
+    - name: Memoria netta (senza cache dei file) di ogni nodo e OOM kill
+      ansible.builtin.shell: |
+        for n in $(kubectl --context {{ profilo }} get nodes -o name | cut -d/ -f2); do
+          docker exec $n sh -c 'cd /sys/fs/cgroup; f=$(awk "/^(active|inactive)_file /{s+=\$2} END{print s}" memory.stat); c=$(cat memory.current); m=$(cat memory.max); echo "$(hostname) netto $(( (c-f)/1048576 )) Mi = $(( (c-f)*100/m ))% di $((m/1048576)) Mi · $(grep oom_kill memory.events)"'
+        done
+      register: memoria
+      check_mode: false
+      changed_when: false
+      tags: memoria
+
+    - name: Memoria dei nodi
+      ansible.builtin.debug:
+        var: memoria.stdout_lines
+      tags: memoria
+
+    # ── app: il manifest della 21 ────────────────────────────────────────────
+    - name: Applica il manifest della 21 un oggetto per volta (con --diff si vede quale cambia)
+      kubernetes.core.k8s:
+        definition: "{{ item }}"
+        state: present
+        apply: true
+        wait: true
+        wait_timeout: 180
+        hidden_fields:
+          - metadata.managedFields
+          - metadata.annotations[kubectl.kubernetes.io/last-applied-configuration]
+          - metadata.generation
+          - metadata.resourceVersion
+          - status
+      loop: "{{ lookup('ansible.builtin.file', manifest_21) | ansible.builtin.from_yaml_all | select | list }}"
+      loop_control:
+        label: "{{ item.kind }}/{{ item.metadata.name }}"
+      tags: app
+
+    - name: Pod pronti non vuol dire HAProxy pronto. Aspetto 200 su /blu e /verde
+      ansible.builtin.uri:
+        url: "http://{{ ip }}:30080/{{ item }}"
+        headers: { Host: app.lab.local }
+      loop: [blu, verde]
+      register: pronte
+      check_mode: false
+      until: pronte.status == 200
+      retries: 30
+      delay: 1
+      tags: app
+
+    - name: Tentativi serviti
+      ansible.builtin.debug:
+        msg: "{{ pronte.results | map(attribute='item') | zip(pronte.results | map(attribute='attempts')) | map('join', ' → 200 dopo tentativi: ') | list }}"
+      tags: app
+
+    # ── verifica: le prove della 21, con assert ─────────────────────────────
+    - name: Pod delle app
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: lab-haproxy
+      register: app_pod
+      tags: verifica
+
+    - name: Dove sono finiti (topologySpreadConstraints)
+      ansible.builtin.debug:
+        msg: "{{ app_pod.resources | map(attribute='metadata.name') | zip(app_pod.resources | map(attribute='spec.nodeName')) | map('join', ' → ') | list }}"
+      tags: verifica
+
+    - name: /blu/ciao arriva al Pod come /ciao (path-rewrite)
+      ansible.builtin.uri:
+        url: "http://{{ ip }}:30080/blu/ciao"
+        headers: { Host: app.lab.local }
+        return_content: true
+      register: ciao
+      check_mode: false
+      tags: verifica
+
+    - name: Il Pod ha ricevuto GET /ciao
+      ansible.builtin.assert:
+        that: "'GET /ciao' in ciao.content"
+        success_msg: "{{ ciao.content | regex_findall('Hostname: .*|GET .*') }}"
+      tags: verifica
+
+    - name: Sei richieste a /blu (roundrobin, ogni replica HAProxy per conto suo)
+      ansible.builtin.uri:
+        url: "http://{{ ip }}:30080/blu"
+        headers: { Host: app.lab.local }
+        return_content: true
+      loop: "{{ range(6) | list }}"
+      register: giro
+      check_mode: false
+      tags: verifica
+
+    - name: Chi ha risposto
+      ansible.builtin.debug:
+        msg: "{{ giro.results | map(attribute='content') | map('regex_search', 'Hostname: \\S+') | list }}"
+      tags: verifica
+
+    - name: Senza header Host nessuna regola combacia → 404
+      ansible.builtin.uri:
+        url: "http://{{ ip }}:30080/"
+        status_code: 404
+      check_mode: false
+      tags: verifica
+
+    - name: La config che il controller ha scritto (backend blu)
+      kubernetes.core.k8s_exec:
+        namespace: haproxy-controller
+        pod: "{{ hap_pod.resources[0].metadata.name }}"
+        command: sed -n '/^backend lab-haproxy_svc_blu/,/^$/p' /etc/haproxy/haproxy.cfg
+      register: cfg_blu
+      changed_when: false
+      tags: verifica
+
+    - name: Una riga server per IP di Pod, non il ClusterIP
+      ansible.builtin.debug:
+        var: cfg_blu.stdout_lines
+      tags: verifica
+
+    - name: Rate limit su limitato.lab.local, 12 richieste di fila
+      ansible.builtin.uri:
+        url: "http://{{ ip }}:30080/"
+        headers: { Host: limitato.lab.local }
+        status_code: [200, 429]
+      loop: "{{ range(12) | list }}"
+      register: limite
+      check_mode: false
+      tags: verifica
+
+    - name: Fino a 5 per replica, poi 429
+      ansible.builtin.assert:
+        that:
+          - limite.results | selectattr('status', '==', 429) | list | length > 0
+          - limite.results | selectattr('status', '==', 200) | list | length <= 10
+        success_msg: "{{ limite.results | map(attribute='status') | join(' ') }}"
+      tags: verifica
+
+    - name: Pagina statistiche in CSV
+      ansible.builtin.uri:
+        url: "http://{{ ip }}:30024/stats;csv"
+        return_content: true
+      register: stats
+      check_mode: false
+      tags: verifica
+
+    - name: Backend, server, stato
+      ansible.builtin.debug:
+        msg: >-
+          {% set r = [] %}{% for l in stats.content.splitlines() if l is search('^(# pxname|lab-haproxy_svc)') %}{% set c = l.split(',') %}{% set _ = r.append(c[0] ~ ',' ~ c[1] ~ ',' ~ c[17]) %}{% endfor %}{{ r }}
+      tags: verifica
+
+    # ── headlamp ─────────────────────────────────────────────────────────────
+    - name: Repo Helm di Headlamp (kubernetes-sigs)
+      kubernetes.core.helm_repository:
+        repo_name: headlamp
+        repo_url: https://kubernetes-sigs.github.io/headlamp/
+      tags: headlamp
+
+    - name: "Trappola: di default il chart lega il ServiceAccount DEL POD a cluster-admin"
+      ansible.builtin.shell: >-
+        helm show values headlamp/headlamp --version {{ hl_ver }}
+        | sed -n '/^clusterRoleBinding:/,/^$/p' | grep -v '#'
+      register: hl_default
+      check_mode: false
+      changed_when: false
+      tags: headlamp
+
+    - name: Il default del chart
+      ansible.builtin.debug:
+        var: hl_default.stdout_lines
+      tags: headlamp
+
+    - name: Installa Headlamp (pod senza permessi, 32 Mi, su un worker, Ingress haproxy)
+      kubernetes.core.helm:
+        release_name: headlamp
+        chart_ref: headlamp/headlamp
+        chart_version: "{{ hl_ver }}"
+        release_namespace: headlamp
+        create_namespace: true
+        wait: true
+        timeout: 5m0s
+        release_values:
+          clusterRoleBinding: { create: false }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          affinity: "{{ fuori_dal_control_plane }}"
+          ingress:
+            enabled: true
+            ingressClassName: haproxy
+            hosts:
+              - host: headlamp.lab.local
+                paths: [{ path: /, type: Prefix }]
+      tags: headlamp
+
+    - name: Il ServiceAccount del pod può leggere i Pod?
+      ansible.builtin.command: >-
+        kubectl --context {{ profilo }} auth can-i list pods -A
+        --as=system:serviceaccount:headlamp:headlamp
+      register: can_i
+      check_mode: false
+      changed_when: false
+      failed_when: can_i.stdout != 'no'
+      tags: headlamp
+
+    - name: Utente headlamp-lettore con il ClusterRole view
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          - apiVersion: v1
+            kind: ServiceAccount
+            metadata: { name: headlamp-lettore, namespace: headlamp }
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata: { name: headlamp-lettore }
+            roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: view }
+            subjects:
+              - { kind: ServiceAccount, name: headlamp-lettore, namespace: headlamp }
+      tags: headlamp
+
+    - name: Un Ingress nuovo è un cambio di struttura. Aspetto 200 su headlamp.lab.local
+      ansible.builtin.uri:
+        url: "http://{{ ip }}:30080/"
+        headers: { Host: headlamp.lab.local }
+      register: hl_pronto
+      check_mode: false
+      until: hl_pronto.status == 200
+      retries: 60
+      delay: 1
+      tags: headlamp
+
+    - name: Il backend nuovo in haproxy.cfg
+      kubernetes.core.k8s_exec:
+        namespace: haproxy-controller
+        pod: "{{ hap_pod.resources[0].metadata.name }}"
+        command: sed -n '/^backend headlamp_svc_headlamp/,/^$/p' /etc/haproxy/haproxy.cfg
+      register: cfg_hl
+      changed_when: false
+      tags: headlamp
+
+    - name: Backend di Headlamp (IP del Pod, porta 4466)
+      ansible.builtin.debug:
+        msg: "{{ ['200 dopo tentativi: ' ~ hl_pronto.attempts] + cfg_hl.stdout_lines }}"
+      tags: headlamp
+
+    - name: Token di prova (10 minuti), mai stampato
+      ansible.builtin.command: kubectl --context {{ profilo }} -n headlamp create token headlamp-lettore --duration=10m
+      register: token_prova
+      check_mode: false
+      changed_when: false
+      no_log: true
+      tags: headlamp
+
+    - name: API di Headlamp senza token, col lettore sui pods, col lettore sui secrets
+      ansible.builtin.uri:
+        url: "http://{{ ip }}:30080/clusters/main/api/v1/namespaces/lab-haproxy/{{ item.risorsa }}"
+        headers: "{{ {'Host': 'headlamp.lab.local'} | combine({'Authorization': 'Bearer ' ~ token_prova.stdout} if item.token else {}) }}"
+        status_code: [200, 401, 403]
+        return_content: true
+      loop:
+        - { chi: senza token, risorsa: pods, token: false }
+        - { chi: lettore, risorsa: pods, token: true }
+        - { chi: lettore, risorsa: secrets, token: true }
+      register: permessi
+      check_mode: false
+      no_log: true
+      tags: headlamp
+
+    - name: "I permessi stanno nel token: anonimo 403, lettore pods 200, secrets 403"
+      ansible.builtin.assert:
+        that:
+          - permessi.results[0].status == 403
+          - "'system:anonymous' in permessi.results[0].content"
+          - permessi.results[1].status == 200
+          - permessi.results[2].status == 403
+        success_msg: >-
+          senza token → pods {{ permessi.results[0].status }} ({{ permessi.results[0].content | regex_search('system:anonymous') }}) ·
+          lettore → pods {{ permessi.results[1].status }} ·
+          lettore → secrets {{ permessi.results[2].status }}
+      tags: headlamp
+
+    - name: Token per il browser (8 ore, in nessun Secret)
+      ansible.builtin.command: kubectl --context {{ profilo }} -n headlamp create token headlamp-lettore --duration=8h
+      register: token_browser
+      changed_when: false
+      tags: [headlamp-token, never]
+
+    - name: Come aprirlo dal Mac
+      ansible.builtin.debug:
+        msg:
+          - "token: {{ token_browser.stdout }}"
+          - "Mac:   ssh -N -L 30080:{{ ip }}:30080 wilsonsgro@192.168.1.79"
+          - "       /etc/hosts del Mac: 127.0.0.1 headlamp.lab.local"
+          - "       browser: http://headlamp.lab.local:30080 → incolla il token"
+      tags: [headlamp-token, never]
+
+    # ── scala: add server senza reload ──────────────────────────────────────
+    - name: Reload prima di scalare (socket master, sempre lo stesso Pod)
+      kubernetes.core.k8s_exec:
+        namespace: haproxy-controller
+        pod: "{{ hap_pod.resources[0].metadata.name }}"
+        command: sh -c "echo 'show proc' | socat stdio /run/haproxy-master.sock"
+      register: proc_prima
+      changed_when: false
+      tags: [scala, never]
+
+    - name: Scala blu a 5
+      kubernetes.core.k8s_scale:
+        kind: Deployment
+        namespace: lab-haproxy
+        name: blu
+        replicas: 5
+        wait: true
+      tags: [scala, never]
+
+    - name: Lascia al controller il tempo di vedere gli EndpointSlice
+      ansible.builtin.pause:
+        seconds: 5
+      tags: [scala, never]
+
+    - name: Log del controller sullo stesso Pod
+      kubernetes.core.k8s_log:
+        namespace: haproxy-controller
+        name: "{{ hap_pod.resources[0].metadata.name }}"
+        since_seconds: "60"
+      register: log_su
+      tags: [scala, never]
+
+    - name: Reload dopo, e i server del backend blu dal socket runtime
+      kubernetes.core.k8s_exec:
+        namespace: haproxy-controller
+        pod: "{{ hap_pod.resources[0].metadata.name }}"
+        command: sh -c "echo 'show proc' | socat stdio /run/haproxy-master.sock; echo 'show servers state lab-haproxy_svc_blu_http' | socat stdio /run/haproxy-runtime-api.sock"
+      register: proc_dopo
+      changed_when: false
+      tags: [scala, never]
+
+    - name: "add server sì, reload no: 5 server, contatore fermo"
+      ansible.builtin.assert:
+        that:
+          - (proc_prima.stdout_lines[1].split())[2] == (proc_dopo.stdout_lines[1].split())[2]
+          - proc_dopo.stdout_lines | select('search', '^[0-9]+ lab-haproxy_svc_blu_http ') | list | length == 5
+        success_msg: >-
+          reload prima {{ (proc_prima.stdout_lines[1].split())[2] }}, dopo {{ (proc_dopo.stdout_lines[1].split())[2] }} ·
+          {{ proc_dopo.stdout_lines | select('search', '^[0-9]+ lab-haproxy_svc_blu_http ') | list | length }} server nel backend blu
+      tags: [scala, never]
+
+    - name: Cosa dice il controller nei log
+      ansible.builtin.debug:
+        msg: "{{ log_su.log_lines | select('search', 'add server|New server') | list }}"
+      tags: [scala, never]
+
+    - name: Riporta blu a 3
+      kubernetes.core.k8s_scale:
+        kind: Deployment
+        namespace: lab-haproxy
+        name: blu
+        replicas: 3
+        wait: true
+      tags: [scala, never]
+
+    - name: Aspetta che il controller tolga i server
+      ansible.builtin.pause:
+        seconds: 10
+      tags: [scala, never]
+
+    - name: Log della discesa
+      kubernetes.core.k8s_log:
+        namespace: haproxy-controller
+        name: "{{ hap_pod.resources[0].metadata.name }}"
+        since_seconds: "30"
+      register: log_giu
+      tags: [scala, never]
+
+    - name: I server in più escono a caldo
+      ansible.builtin.debug:
+        msg: "{{ log_giu.log_lines | select('search', '(?i)deleted|del server') | list }}"
+      tags: [scala, never]
+
+    # ── deriva: qualcuno cambia il cluster a mano ───────────────────────────
+    - name: "Simula una modifica a mano: blu a 4 repliche"
+      kubernetes.core.k8s_scale:
+        kind: Deployment
+        namespace: lab-haproxy
+        name: blu
+        replicas: 4
+      tags: [deriva-crea, never]
+
+    # ── pulizia ──────────────────────────────────────────────────────────────
+    - name: Togli Headlamp
+      kubernetes.core.helm:
+        release_name: headlamp
+        release_namespace: headlamp
+        release_state: absent
+        wait: true
+      tags: [pulizia, never]
+
+    - name: Togli l'utente headlamp-lettore e i namespace di Headlamp e del controller
+      kubernetes.core.k8s:
+        state: absent
+        kind: "{{ item.kind }}"
+        name: "{{ item.name }}"
+        wait: true
+      loop:
+        - { kind: ClusterRoleBinding, name: headlamp-lettore }
+        - { kind: Namespace, name: headlamp }
+      tags: [pulizia, never]
+
+    - name: Togli le app (lo stesso file, state absent)
+      kubernetes.core.k8s:
+        src: "{{ manifest_21 }}"
+        state: absent
+        wait: true
+      tags: [pulizia, never]
+
+    - name: Togli HAProxy
+      kubernetes.core.helm:
+        release_name: haproxy
+        release_namespace: haproxy-controller
+        release_state: absent
+        wait: true
+      tags: [pulizia, never]
+
+    - name: Togli il namespace del controller
+      kubernetes.core.k8s:
+        state: absent
+        kind: Namespace
+        name: haproxy-controller
+        wait: true
+      tags: [pulizia, never]
+
+    - name: Cancella il cluster
+      ansible.builtin.command: minikube -p {{ profilo }} delete
+      when: acceso or stato.rc != 85
+      tags: [distruggi, never]
+
+# ── DOMANDE DA COLLOQUIO ────────────────────────────────────────────────────
+# D: Che cosa aggiunge Ansible a uno script bash con kubectl e helm?
+# R: Lo stato desiderato e l'idempotenza: la seconda corsa dice changed=0,
+#    --check --diff mostra cosa cambierebbe, i tag scelgono le sezioni,
+#    assert ferma il play se una prova fallisce.
+#
+# D: Un "command" è idempotente?
+# R: No: Ansible non sa cosa fa, e lo segna sempre changed. Lo rendi
+#    idempotente tu: when (gira solo se serve), changed_when (dice la
+#    verità), creates/removes. Qui: minikube start solo se il cluster è
+#    spento, use-context solo se kubectl punta altrove.
+#
+# D: Come si evita che un playbook tocchi il cluster sbagliato?
+# R: module_defaults con context: su tutti i moduli k8s e helm. Il
+#    contesto corrente di kubectl non conta più.
+#
+# D: Il token finisce nei log di Ansible?
+# R: Solo se lo stampi. no_log: true sul task che lo crea e su quelli che
+#    lo usano negli header; le prove si leggono dopo, con assert.
+
+# ══════════════════════════════════════════════════════════════════════════
+# RIEPILOGO
+# • Un playbook, sezioni con i tag; never per scala, deriva, pulizia
+# • minikube con command + when/changed_when; Helm e manifest con kubernetes.core
+# • Il manifest della 21 si applica con src: una sola fonte
+# • uri + until al posto dei curl in loop; assert al posto dell'occhio
+# • Seconda corsa: changed=0. Deriva: --check --diff la mostra, --tags app la corregge
+# • context in module_defaults: il cluster giusto anche se kubectl punta altrove
+# ══════════════════════════════════════════════════════════════════════════

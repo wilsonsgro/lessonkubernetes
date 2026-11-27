@@ -1,4 +1,4 @@
-// Lessons 22 (Terraform) and 23 (Ansible) come from the lab files, not from corso.md: `importa` copies them verbatim into content/terraform, `caricaCapitolo` turns a range of parts into a lesson.
+// Lessons 22 (Terraform) and 23 (Ansible) come from the lab files, not from corso.md: `importa` copies them verbatim into content/terraform (plus the `extra` parts from kubernetes/), `caricaCapitolo` turns a range of parts into a lesson.
 import { readFileSync, readdirSync, mkdirSync, copyFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,18 +18,25 @@ export const CAPITOLI = {
   },
   '23': {
     parti: ['06', '07', '08', '09', '10'],
+    extra: [{
+      n: '11',
+      spiegazione: 'lezioni/kubernetes/23-architettura-e-haproxy-ansible.md',
+      script: 'kubernetes/23-architettura-e-haproxy-ansible.sh',
+      file: 'lezioni/kubernetes/23-architettura-e-haproxy-ansible.yaml',
+    }],
     appunti: 'appunti-23.md',
-    titolo: 'Ansible: configurare i server, e la catena con Terraform',
+    titolo: 'Ansible: configurare i server, la catena con Terraform e un cluster Kubernetes',
     breve: 'Ansible',
-    sommario: 'Inventario e comandi ad-hoc, playbook idempotenti con handler e validate, ruoli e collection, Vault e rolling update a lotti, poi Terraform che crea i nodi e scrive l\'inventario per Ansible: su container con systemd.',
+    sommario: 'Inventario e comandi ad-hoc, playbook idempotenti con handler e validate, ruoli e collection, Vault e rolling update a lotti, poi Terraform che crea i nodi e scrive l\'inventario per Ansible: su container con systemd. Infine la lezione 21 (HAProxy e Headlamp) rifatta da un playbook con kubernetes.core: idempotenza e deriva su un cluster vero.',
   },
 };
 export const PARTI = Object.values(CAPITOLI).flatMap(c => c.parti);
+const EXTRA = Object.values(CAPITOLI).flatMap(c => (c.extra || []).flatMap(e => [e.spiegazione, e.script, e.file]));
 
-const daCopiare = base => CARTELLE.flatMap(c => {
+const daCopiare = base => [...CARTELLE.flatMap(c => {
   const dir = join(base, c);
   return existsSync(dir) ? readdirSync(dir).filter(f => PARTI.includes(f.slice(0, 2)) && /^\d\d-[a-z0-9-]+\.[a-z]+$/.test(f)).sort().map(f => `${c}/${f}`) : [];
-});
+}), ...EXTRA.filter(p => existsSync(join(base, p)))];
 
 export function importaDalLaboratorio(base = resolve(RADICE, '..')) {
   const file = daCopiare(base);
@@ -57,7 +64,11 @@ export function caricaCapitolo(id) {
     const lez = trova('lezioni/terraform', /./);
     const titolo = spiegazione.testo.match(/^# \d\d — (.+)$/m)?.[1] ?? spiegazione.nome;
     return { n, titolo, spiegazione, script, file: lez ? fonte(lez, 'manifest') : null };
-  });
+  }).concat((c.extra || []).map(e => {
+    const spiegazione = fonte(e.spiegazione, 'lezione');
+    const titolo = spiegazione.testo.match(/^# \d\d — (.+)$/m)?.[1] ?? spiegazione.nome;
+    return { n: e.n, titolo, spiegazione, script: fonte(e.script, 'passi'), file: fonte(e.file, 'manifest') };
+  }));
   return {
     id, titolo: c.titolo, breve: c.breve, sommario: c.sommario,
     spiegazione: readFileSync(join(CONTENUTO, c.appunti), 'utf8'),

@@ -49,7 +49,7 @@ nginx legge direttamente `dist/`.
 | `content/quiz/quiz-NN.json` | domande per lezione; `tipo` distingue `didattica` da `esito-lab` |
 | `content/glossario.json` | termini, definizioni, lezioni collegate, alias |
 | `content/flashcard.json` | carte domanda/risposta per il ripasso |
-| `content/terraform/` | lezioni 22 e 23: i file delle parti 00–10 di `~/kubernetesprj/terraform/` e `lezioni/terraform/` copiati tali e quali, più gli appunti di sintesi (`appunti.md` per la 22, `appunti-23.md` per la 23) e `mappa.json` (collegamenti alle altre lezioni) |
+| `content/terraform/` | lezioni 22 e 23: i file delle parti 00–10 di `~/kubernetesprj/terraform/` e `lezioni/terraform/` copiati tali e quali, i tre della parte 11 della 23 (`kubernetes/23-architettura-e-haproxy-ansible.sh`, `lezioni/kubernetes/23-architettura-e-haproxy-ansible.md` e `.yaml`, nelle stesse sottocartelle), più gli appunti di sintesi (`appunti.md` per la 22, `appunti-23.md` per la 23) e `mappa.json` (collegamenti alle altre lezioni) |
 | `content/progetto/` | lezione 24: `file/` con i 37 file di `~/biodistretto/kubernetes` (IP del laboratorio mascherato), `appunti-24.md`, `comandi.passi` (i comandi del README) e `mappa.json` |
 | `content/monitoraggio/` | lezione 25: `lezione-25.md` (il materiale didattico senza intestazione YAML né la sezione 15, che è una specifica per l'agente), `file/` con i tre YAML della lezione estratti tali e quali, `appunti-25.md`, `comandi.passi` (sezioni 5–10 più la pulizia) e `mappa.json` |
 | `content/approfondimenti/` | materiale integrativo fuori dal repository del laboratorio, reso in fondo alla Spiegazione della lezione (oggi: `21-haproxy-cfg-tls.md`, haproxy.cfg e TLS, con il suo quiz `quiz/quiz-21-tls.json`); si collega in `APPROFONDIMENTI` di `src/build.mjs` |
@@ -61,7 +61,8 @@ Il build (`src/build.mjs`) produce le pagine, l'indice di ricerca (`dati/cerca.j
 in `dist/fonti/` per lo scaricamento.
 
 Le lezioni 22 e 23 non passano da `corso.md`: `src/terraform.mjs` legge `content/terraform/` e, secondo `CAPITOLI`,
-costruisce la 22 dalle parti 00–05 (Terraform) e la 23 dalle parti 06–10 (Ansible, e la catena Terraform + Ansible).
+costruisce la 22 dalle parti 00–05 (Terraform) e la 23 dalle parti 06–10 (Ansible, e la catena Terraform + Ansible)
+più la parte 11, dichiarata in `extra`: la lezione 21 (HAProxy e Headlamp) rifatta da un playbook con `kubernetes.core`.
 Ogni parte ha spiegazione, script guidato e, dalla 01, file di lezione. Le righe `cartella` degli script diventano la
 cartella di lavoro mostrata nel Laboratorio.
 
@@ -82,8 +83,8 @@ scrivere), e ogni indirizzo `192.168.x.y` diventa `IP-DEL-LAB`.
 `test/importa.test.mjs` confronta con SHA-256 ogni sorgente in `content/corso.md` con il file vero in
 `../lezioni/kubernetes/` e `../kubernetes/`. Se quelle cartelle mancano (build su un'altra macchina) il test
 viene saltato e lo segnala; sul lab deve passare, non essere saltato.
-`test/terraform.test.mjs` fa lo stesso per i 32 file di `content/terraform/` (17 della 22, 15 della 23) contro
-`../terraform/` e `../lezioni/terraform/`. `test/progetto.test.mjs` confronta i 37 file di `content/progetto/file/`
+`test/terraform.test.mjs` fa lo stesso per i 35 file di `content/terraform/` (17 della 22, 18 della 23) contro
+`../terraform/`, `../lezioni/terraform/` e, per la parte 11, `../kubernetes/` e `../lezioni/kubernetes/`. `test/progetto.test.mjs` confronta i 37 file di `content/progetto/file/`
 con `~/biodistretto/kubernetes` passato dalla stessa maschera dell'IP (cartella diversa: variabile `PROGETTO`).
 
 ## Aggiornare il corso
@@ -94,7 +95,7 @@ con `~/biodistretto/kubernetes` passato dalla stessa maschera dell'IP (cartella 
 4. Se cambia il contenuto di una lezione, rivedi quiz e flashcard della lezione.
 
 Per Terraform e Ansible (lezioni 22 e 23) non si copia a mano: `npm run importa:terraform` ricopia da
-`~/kubernetesprj` i file delle parti 00–10 in `content/terraform/`, poi `npm test` e `npm run build`. Gli appunti
+`~/kubernetesprj` i file delle parti 00–10 e della parte 11 in `content/terraform/`, poi `npm test` e `npm run build`. Gli appunti
 (`appunti.md`, `appunti-23.md`), i quiz `quiz-22.json` e `quiz-23.json` e le voci del glossario si rivedono a mano.
 
 Per il progetto reale (lezione 24): `npm run importa:progetto` ricopia i file da `/biodistretto/kubernetes`

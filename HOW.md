@@ -52,6 +52,7 @@ Obiettivo: capire la **riconciliazione** (stato desiderato contro stato osservat
 | 1.5 | `/kubernetes/19` · `19-dns-service-discovery.md` | `bash kubernetes/19-dns-service-discovery.sh` (scarica circa 200 MB) | `resolv.conf`, `ndots:5`, come un nome diventa un IP |
 | 1.6 | `lezioni/kubernetes/21-architettura-e-haproxy.md` | prima `minikube -p lab stop`, poi `bash kubernetes/21-architettura-e-haproxy.sh` (crea un cluster **suo**, `lab-haproxy`: 5 nodi da 1 GiB) | HAProxy come Ingress controller via Helm, traffico diretto ai Pod, Runtime API senza reload, rate limit per replica |
 | 1.7 | `lezioni/kubernetes/22-architettura-haproxy-prometheus-grafana.md` | prima `minikube -p lab stop; minikube -p lab-haproxy stop`, poi `bash kubernetes/22-architettura-haproxy-prometheus-grafana.sh` (crea un cluster **suo**, `lab-monitoring`: 3 nodi da 3 GiB) | Prometheus e Grafana su HAProxy: i tre selettori, PodMonitor per replica, rate limit nel tempo, alert dal lato utente |
+| 1.8 | `lezioni/kubernetes/23-architettura-e-haproxy-ansible.md` | prima `minikube -p lab stop; minikube -p lab-haproxy stop`, poi `bash kubernetes/23-architettura-e-haproxy-ansible.sh` (crea un cluster **suo**, `lab-ansible`: 5 nodi da 1 GiB) | la 21 con Ansible: playbook a tag, `kubernetes.core.helm`/`k8s`, idempotenza (`changed=0`), deriva con `--check --diff`, `assert` e `no_log` |
 
 Controllo prima di cominciare ogni giorno:
 
